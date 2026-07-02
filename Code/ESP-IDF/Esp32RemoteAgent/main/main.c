@@ -93,6 +93,7 @@ static uint8_t s_pipe_buffer[MAX_FRAME_PAYLOAD];
 static int64_t s_last_heartbeat_ms;
 static uint64_t s_bytes_from_server;
 static uint64_t s_bytes_from_terminal;
+static uint16_t s_runtime_assigned_public_port;
 static esp_netif_t *s_usb_netif;
 static led_strip_handle_t s_status_led;
 static bool s_status_led_ready;
@@ -607,6 +608,7 @@ static int connect_tcp_host(const char *host, uint16_t port, int timeout_ms)
 
 static esp_err_t register_board(int relay_fd)
 {
+    const uint16_t requested_assigned_port = 0;
     char nonce[18];
     snprintf(nonce, sizeof(nonce), "%08" PRIx32 "%08" PRIx32, esp_random(), esp_random());
     int64_t timestamp_ms = now_ms();
@@ -614,7 +616,7 @@ static esp_err_t register_board(int relay_fd)
     char auth_payload[256];
     snprintf(auth_payload, sizeof(auth_payload), "%s|%u|%s|%u|%s|%s|%" PRIi64,
              s_config.board_id,
-             s_config.assigned_public_port,
+             requested_assigned_port,
              s_config.terminal_rdp_host,
              s_config.terminal_rdp_port,
              FIRMWARE_VERSION,
@@ -630,7 +632,7 @@ static esp_err_t register_board(int relay_fd)
              "\"targetHost\":\"%s\",\"targetPort\":%u,\"firmware\":\"%s\","
              "\"authNonce\":\"%s\",\"authTimestampMs\":%" PRIi64 ",\"authSignature\":\"%s\"}",
              s_config.board_id,
-             s_config.assigned_public_port,
+             requested_assigned_port,
              s_config.terminal_rdp_host,
              s_config.terminal_rdp_port,
              FIRMWARE_VERSION,
@@ -638,8 +640,8 @@ static esp_err_t register_board(int relay_fd)
              timestamp_ms,
              signature);
 
-    ESP_LOGI(TAG, "register boardId=%s assignedPort=%u target=%s:%u",
-             s_config.board_id, s_config.assigned_public_port, s_config.terminal_rdp_host, s_config.terminal_rdp_port);
+    ESP_LOGI(TAG, "register boardId=%s assignedPort=request-server target=%s:%u",
+             s_config.board_id, s_config.terminal_rdp_host, s_config.terminal_rdp_port);
     return send_text_frame(relay_fd, FRAME_REGISTER, 0, json);
 }
 
@@ -663,7 +665,30 @@ static esp_err_t wait_register_ack(int relay_fd)
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "registered successfully");
+    if (len > 0) {
+        char ack_json[256];
+        size_t ack_len = len < sizeof(ack_json) - 1 ? len : sizeof(ack_json) - 1;
+        memcpy(ack_json, s_rx_buffer, ack_len);
+        ack_json[ack_len] = '\0';
+
+        uint16_t assigned_port = 0;
+        if (extract_json_u16(ack_json, "assignedPort", &assigned_port) && assigned_port > 0) {
+            s_runtime_assigned_public_port = assigned_port;
+        }
+
+        char target_host[sizeof(s_config.terminal_rdp_host)];
+        if (extract_json_string(ack_json, "targetHost", target_host, sizeof(target_host))) {
+            strlcpy(s_config.terminal_rdp_host, target_host, sizeof(s_config.terminal_rdp_host));
+        }
+
+        uint16_t target_port = 0;
+        if (extract_json_u16(ack_json, "targetPort", &target_port) && target_port > 0) {
+            s_config.terminal_rdp_port = target_port;
+        }
+    }
+
+    ESP_LOGI(TAG, "registered successfully assignedPort=%u target=%s:%u",
+             s_runtime_assigned_public_port, s_config.terminal_rdp_host, s_config.terminal_rdp_port);
     s_last_heartbeat_ms = now_ms();
     return ESP_OK;
 }
@@ -845,14 +870,15 @@ static void send_heartbeat_if_needed(int relay_fd)
              "{\"uptimeMs\":%" PRIi64 ",\"freeHeap\":%lu,\"rssi\":%d,"
              "\"activeTunnels\":%d,\"bytesFromServer\":%" PRIu64 ","
              "\"bytesFromTerminal\":%" PRIu64 ",\"usbNetif\":\"ncm\","
-             "\"firmware\":\"%s\"}",
+             "\"firmware\":\"%s\",\"assignedPort\":%u}",
              now_ms(),
              (unsigned long)esp_get_free_heap_size(),
              rssi,
              active_tunnels,
              s_bytes_from_server,
              s_bytes_from_terminal,
-             FIRMWARE_VERSION);
+             FIRMWARE_VERSION,
+             s_runtime_assigned_public_port);
     if (send_text_frame(relay_fd, FRAME_HEARTBEAT, 0, json) == ESP_OK) {
         ESP_LOGI(TAG, "heartbeat sent freeHeap=%lu", (unsigned long)esp_get_free_heap_size());
     }
@@ -1046,8 +1072,9 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
     ESP_ERROR_CHECK(config_load());
-    ESP_LOGI(TAG, "boardId=%s assignedPort=%u server=%s:%u",
-             s_config.board_id, s_config.assigned_public_port, s_config.server_host, s_config.server_control_port);
+    s_runtime_assigned_public_port = 0;
+    ESP_LOGI(TAG, "boardId=%s assignedPort=server-assigned server=%s:%u",
+             s_config.board_id, s_config.server_host, s_config.server_control_port);
     ESP_ERROR_CHECK(status_led_init());
 
     for (int i = 0; i < MAX_TUNNELS; i++) {

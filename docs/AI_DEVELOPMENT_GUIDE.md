@@ -157,6 +157,7 @@ P0：
 - 注册报文支持 HMAC-SHA256 签名，不再要求新固件把 `authKey` 明文发给服务器。
 - 服务器仍兼容旧固件的明文 `authKey` 注册，方便滚动升级。
 - 管理后台拒绝保存默认占位密钥 `CHANGE_THIS_DEVICE_SECRET`。
+- 板子的公网远程端口不再固定在固件里；固件注册时发送 `assignedPort=0`，服务器从数据库读取该板子的 `AssignedPort`，并通过 `RegisterAck.assignedPort` 下发。
 
 P1：
 

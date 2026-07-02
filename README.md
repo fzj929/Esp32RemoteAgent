@@ -45,7 +45,8 @@ TCP 3389
 ## Main Features
 
 - Fixed WiFi credentials in firmware configuration.
-- Board registration with board ID, authentication key, and assigned public port.
+- Board registration with board ID and authentication key.
+- Public RDP port is assigned by the relay server and returned to the board over the TCP `6555` control channel.
 - HMAC-SHA256 board registration for current firmware, with backward compatibility for older auth-key registration.
 - Firmware NVS configuration persistence after first boot.
 - Relay server control port: TCP `6555`.

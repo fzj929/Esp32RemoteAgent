@@ -26,9 +26,12 @@ config REMOTE_AGENT_BOARD_KEY
     default "CHANGE_THIS_DEVICE_SECRET"
 
 config REMOTE_AGENT_ASSIGNED_PUBLIC_PORT
-    int "Assigned public RDP port"
+    int "Legacy fallback public RDP port"
     range 6500 6600
     default 6500
+    help
+        Current firmware asks the relay server for the assigned public port during registration.
+        This value is kept for old tooling and fallback documentation only.
 
 config REMOTE_AGENT_TERMINAL_RDP_HOST
     string "Terminal RDP host"

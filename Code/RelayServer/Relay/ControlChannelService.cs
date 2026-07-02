@@ -77,7 +77,7 @@ public sealed class ControlChannelService(
                 return;
             }
 
-            if (board.AssignedPort != register.AssignedPort)
+            if (register.AssignedPort > 0 && board.AssignedPort != register.AssignedPort)
             {
                 await RelayFrame.WriteJsonAsync(stream, RelayFrameType.Error, 0, new { error = "assigned port mismatch" }, stoppingToken);
                 client.Close();
@@ -86,7 +86,13 @@ public sealed class ControlChannelService(
 
             var session = new BoardSession(client, board, hub, relayOptions, remote, register.Firmware);
             await hub.RegisterAsync(session);
-            await RelayFrame.WriteJsonAsync(stream, RelayFrameType.RegisterAck, 0, new { ok = true, board.AssignedPort }, stoppingToken);
+            await RelayFrame.WriteJsonAsync(stream, RelayFrameType.RegisterAck, 0, new
+            {
+                ok = true,
+                assignedPort = board.AssignedPort,
+                targetHost = board.TargetHost,
+                targetPort = board.TargetPort
+            }, stoppingToken);
             await session.RunAsync(stoppingToken);
         }
         catch (OperationCanceledException)

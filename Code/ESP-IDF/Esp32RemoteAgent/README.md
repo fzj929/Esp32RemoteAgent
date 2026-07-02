@@ -9,7 +9,8 @@ ESP-IDF firmware for an ESP32-S3 board used as a field-side RDP relay agent.
 - Receives public RDP tunnel requests from the relay server.
 - Forwards tunnel traffic to the terminal device at `192.168.77.2:3389`.
 - Exposes a USB virtual network interface for the terminal-side link.
-- Uses a board ID, authentication key, and assigned public port.
+- Uses a board ID and authentication key.
+- Requests the assigned public RDP port from the relay server during registration on TCP `6555`.
 - Persists startup configuration in NVS after first boot.
 - Registers with HMAC-SHA256 in current firmware so the board key is not sent in plaintext.
 - Sends heartbeat telemetry including RSSI, free heap, active tunnel count, traffic counters, and firmware version.
