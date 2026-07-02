@@ -1,82 +1,82 @@
 # Esp32RemoteAgent
 
-ESP32-S3 remote desktop relay system for field terminals that cannot directly access the Internet.
+ESP32-S3 远程桌面中转系统，用于现场终端设备无法直接联网，但运维人员需要远程桌面访问终端设备的场景。
 
-The system uses an ESP32-S3 board as an on-site network bridge and a public relay server as the entry point for operations staff. The operations PC connects to the relay server with Remote Desktop, and the relay server forwards the TCP stream through the ESP32-S3 board to the terminal device's RDP port.
+系统使用 ESP32-S3 板子作为现场侧 USB 网络桥接设备，使用具备公网访问能力的中转服务器作为运维入口。运维 PC 通过远程桌面连接中转服务器上的指定端口，中转服务器再把 TCP 数据流通过 ESP32-S3 板子转发到终端设备的 RDP 端口。
 
-## Architecture
+## 系统架构
 
 ```text
-Operations PC
+运维 PC
     |
-    | RDP to relay-server-ip:6500-6600
+    | 远程桌面连接 relay-server-ip:6500-6600
     v
-Relay Server (.NET 8, public IP)
+中转服务器（.NET 8，公网 IP）
     |
-    | Board control tunnel, TCP 6555
+    | 板子控制通道，TCP 6555
     v
-ESP32-S3 Board
+ESP32-S3 板子
     |
-    | USB virtual network, 192.168.77.0/24
+    | USB 虚拟网卡，192.168.77.0/24
     v
-Terminal Device
+终端设备
     |
-    | RDP service
+    | Windows 远程桌面服务
     v
 TCP 3389
 ```
 
-## Components
+## 代码组成
 
 - `Code/ESP-IDF/Esp32RemoteAgent`
-  - ESP-IDF 5.3.x firmware for ESP32-S3.
-  - WiFi station mode.
-  - TinyUSB virtual network interface for terminal-side USB networking.
-  - Relay control tunnel and TCP forwarding.
-  - RGB status LED.
+  - ESP-IDF 5.3.x 固件，目标芯片为 ESP32-S3。
+  - WiFi STA 模式，板子自动连接现场 WiFi。
+  - TinyUSB USB 虚拟网卡，用于和终端设备建立 USB 网络。
+  - 中转服务器控制通道和 TCP 数据转发。
+  - RGB 状态灯。
 
 - `Code/RelayServer`
-  - .NET 8 relay service.
-  - SQLite persistence.
-  - Vue 3 static management page.
-  - Administrator login.
-  - HTTPS publish/start script.
+  - .NET 8 中转服务。
+  - SQLite 数据持久化。
+  - Vue 3 静态管理后台页面。
+  - 管理员登录。
+  - HTTPS 发布和启动脚本。
 
-## Main Features
+## 主要功能
 
-- Fixed WiFi credentials in firmware configuration.
-- Board registration with board ID and authentication key.
-- Public RDP port is assigned by the relay server and returned to the board over the TCP `6555` control channel.
-- HMAC-SHA256 board registration for current firmware, with backward compatibility for older auth-key registration.
-- Firmware NVS configuration persistence after first boot.
-- Relay server control port: TCP `6555`.
-- Board public ports: normally `6500-6600`.
-- Terminal RDP target: `192.168.77.2:3389`.
-- Operations PC connects with Remote Desktop to `relay-server-ip:assigned-port`.
-- Management page for boards and events.
-- Management diagnostics for RSSI, heap, firmware version, heartbeats, traffic counters, and target probing.
-- SQLite persistence for recent relay events.
-- Administrator login failure rate limiting.
-  - HTTPS support through generated self-signed certificate.
-  - RGB status indication:
-  - Red: relay disconnected.
-  - Green: relay connected and registered.
-  - Blue flash: tunnel data activity.
+- 固件配置固定 WiFi 账号和密码。
+- 板子使用 `boardId` 和 `boardKey` 注册到中转服务器。
+- 公网远程桌面端口由中转服务器后台配置，并通过 TCP `6555` 控制通道下发给板子。
+- 新固件使用 HMAC-SHA256 注册鉴权，同时兼容旧版本明文 `authKey` 注册方式。
+- 固件启动配置支持 NVS 持久化。
+- 中转服务器固定控制端口：TCP `6555`。
+- 板子公网远程桌面端口：通常为 `6500-6600`。
+- 终端设备 RDP 地址：`192.168.77.2:3389`。
+- 运维 PC 使用远程桌面连接 `relay-server-ip:assigned-port`。
+- 管理后台支持板子和事件管理。
+- 管理后台诊断信息包括 RSSI、剩余堆内存、固件版本、心跳、流量计数和目标端口探测。
+- SQLite 保存最近的中转事件。
+- 管理员登录失败限流。
+- 支持通过自签名证书启用 HTTPS。
+- RGB 状态灯：
+  - 红灯：未连接中转服务器。
+  - 绿灯：已连接并注册到中转服务器。
+  - 蓝灯闪烁：正在转发隧道数据。
 
-## Development Environment
+## 开发环境
 
-Recommended host environment:
+推荐开发环境：
 
 - Windows 10/11
 - Git for Windows
-- PowerShell 5.1 or PowerShell 7
-- .NET SDK 8.x for the relay server
-- ESP-IDF 5.3.x for the ESP32-S3 firmware
-- Python environment installed by the ESP-IDF installer
-- ESP-IDF tools installed under `C:\Espressif`
-- ESP32-S3 USB serial driver. The tested board uses `COM5`.
+- PowerShell 5.1 或 PowerShell 7
+- .NET SDK 8.x，用于中转服务器
+- ESP-IDF 5.3.x，用于 ESP32-S3 固件
+- ESP-IDF 安装器自带的 Python 环境
+- ESP-IDF 工具安装目录：`C:\Espressif`
+- ESP32-S3 USB 串口驱动，已测试板子使用 `COM5`
 
-Tested local ESP-IDF layout:
+已测试的本地 ESP-IDF 目录结构：
 
 ```text
 C:\Espressif\frameworks\esp-idf-v5.3.1-2
@@ -84,36 +84,29 @@ C:\Espressif\python_env\idf5.3_py3.11_env\Scripts\python.exe
 C:\Espressif\tools
 ```
 
-Windows ESP-IDF notes:
+Windows 下 ESP-IDF 注意事项：
 
-- Avoid building firmware directly from a project path containing Chinese or other non-ASCII characters. ESP-IDF/Kconfig can fail during path conversion.
-- Use the provided flash script. It copies the firmware project to `C:\tmp\Esp32RemoteAgentBuild`, injects runtime configuration there, then builds and flashes from the ASCII-only path.
-- Do not commit generated `sdkconfig`, `dependencies.lock`, `managed_components`, `build`, WiFi passwords, board keys, databases, certificates, or logs.
+- 不建议直接在包含中文或其他非 ASCII 字符的项目路径下编译固件，ESP-IDF/Kconfig 在路径转换时可能失败。
+- 推荐使用项目提供的固件脚本。脚本会把固件项目复制到 `C:\tmp\Esp32RemoteAgentBuild`，在临时目录注入运行配置，然后从纯 ASCII 路径编译和烧录。
+- 不要提交生成的 `sdkconfig`、`dependencies.lock`、`managed_components`、`build`、WiFi 密码、板子密钥、数据库、证书或日志文件。
 
-Required server tools:
+检查服务端工具：
 
 ```powershell
 dotnet --version
 dotnet build Code\RelayServer\RelayServer.sln
 ```
 
-Required firmware tools:
+检查固件工具：
 
 ```powershell
 C:\Espressif\python_env\idf5.3_py3.11_env\Scripts\python.exe `
   C:\Espressif\frameworks\esp-idf-v5.3.1-2\tools\idf.py --version
 ```
 
-## Security Notes
+## 快速开始
 
-- Do not commit real WiFi passwords, board keys, generated certificates, SQLite databases, or runtime logs.
-- Replace the development admin password before deployment.
-- Use trusted certificates for production HTTPS.
-- Restrict relay server firewall rules to required ports.
-
-## Quick Start
-
-Build and flash firmware with the recommended script:
+使用推荐脚本编译并烧录固件：
 
 ```powershell
 .\Code\ESP-IDF\Esp32RemoteAgent\flash-firmware.ps1 `
@@ -122,13 +115,12 @@ Build and flash firmware with the recommended script:
   -ServerHost "YOUR_RELAY_SERVER_IP" `
   -Port "COM5" `
   -BoardId "S3-0001" `
-  -BoardKey "CHANGE_THIS_DEVICE_SECRET" `
-  -AssignedPublicPort 6500
+  -BoardKey "CHANGE_THIS_DEVICE_SECRET"
 ```
 
-The script writes real WiFi/server values only to the temporary build directory under `C:\tmp`; it does not modify tracked firmware configuration files.
+脚本只会把真实 WiFi 和服务器地址写入 `C:\tmp` 下的临时构建目录，不会修改仓库中被 Git 跟踪的固件配置文件。
 
-Use `-BuildOnly` to compile without flashing:
+只编译不烧录：
 
 ```powershell
 .\Code\ESP-IDF\Esp32RemoteAgent\flash-firmware.ps1 `
@@ -138,7 +130,7 @@ Use `-BuildOnly` to compile without flashing:
   -BuildOnly
 ```
 
-Manual firmware build, only when the project path is ASCII-only:
+仅当项目路径为纯 ASCII 路径时，才建议手动编译固件：
 
 ```powershell
 cd Code\ESP-IDF\Esp32RemoteAgent
@@ -148,7 +140,7 @@ idf.py build
 idf.py -p COM5 flash
 ```
 
-Run relay server for development:
+开发模式运行中转服务器：
 
 ```powershell
 cd Code\RelayServer
@@ -156,14 +148,28 @@ dotnet restore
 dotnet run --project .\RelayServer.csproj
 ```
 
-Publish and start relay server with HTTPS:
+发布并以 HTTPS 启动中转服务器：
 
 ```powershell
 cd Code\RelayServer
 .\publish-start.ps1
 ```
 
-## Current Limitations
+## 安全说明
 
-- RDP TCP forwarding is implemented. UDP forwarding can be added later for better RDP performance.
-- USB virtual network compatibility depends on the terminal Windows USB network driver support. NCM is implemented; some Windows images may require RNDIS.
+- 不要提交真实 WiFi 密码、板子密钥、生成的证书、SQLite 数据库或运行日志。
+- 部署前必须修改开发环境默认管理员密码。
+- 生产环境建议使用可信 CA 证书，不建议长期使用自签名证书。
+- 中转服务器应通过防火墙只开放必要端口。
+- 每块板子应使用独立的 `boardKey`，不要批量复用默认占位密钥。
+
+## 当前限制
+
+- 当前已实现 RDP TCP 转发。RDP UDP 转发后续可以增加，用于进一步改善远程桌面体验。
+- USB 虚拟网卡兼容性取决于终端 Windows 系统的 USB 网络驱动支持。当前实现为 NCM，部分 Windows 镜像可能需要 RNDIS。
+- 中转服务器默认使用 SQLite，适合轻量部署；大规模设备管理时可以扩展为 PostgreSQL 或 SQL Server。
+
+## 更多文档
+
+- [ESP-IDF 固件说明](Code/ESP-IDF/Esp32RemoteAgent/README.md)
+- [AI 后续开发指南](docs/AI_DEVELOPMENT_GUIDE.md)
