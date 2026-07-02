@@ -25,6 +25,7 @@
 #include "lwip/esp_netif_net_stack.h"
 #include "lwip/inet.h"
 #include "lwip/ip4_addr.h"
+#include "lwip/netdb.h"
 #include "lwip/tcp.h"
 #include "mbedtls/md.h"
 #include "nvs.h"
@@ -567,43 +568,55 @@ static void close_tunnel(uint32_t id)
 
 static int connect_tcp_host(const char *host, uint16_t port, int timeout_ms)
 {
-    struct sockaddr_in addr = {
-        .sin_family = AF_INET,
-        .sin_port = htons(port),
-    };
+    char port_text[8];
+    snprintf(port_text, sizeof(port_text), "%u", port);
 
-    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
-        ESP_LOGE(TAG, "only IPv4 literal hosts are currently supported: %s", host);
+    struct addrinfo hints = {
+        .ai_family = AF_INET,
+        .ai_socktype = SOCK_STREAM,
+        .ai_protocol = IPPROTO_TCP,
+    };
+    struct addrinfo *results = NULL;
+    int gai_err = getaddrinfo(host, port_text, &hints, &results);
+    if (gai_err != 0 || results == NULL) {
+        ESP_LOGE(TAG, "resolve %s:%u failed err=%d", host, port, gai_err);
         return -1;
     }
 
-    int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-    if (fd < 0) {
-        ESP_LOGE(TAG, "socket failed errno=%d", errno);
-        return -1;
-    }
+    int fd = -1;
+    for (const struct addrinfo *it = results; it != NULL; it = it->ai_next) {
+        fd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
+        if (fd < 0) {
+            ESP_LOGE(TAG, "socket failed errno=%d", errno);
+            continue;
+        }
 
-    struct timeval tv = {
-        .tv_sec = timeout_ms / 1000,
-        .tv_usec = (timeout_ms % 1000) * 1000,
-    };
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+        struct timeval tv = {
+            .tv_sec = timeout_ms / 1000,
+            .tv_usec = (timeout_ms % 1000) * 1000,
+        };
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
-    int yes = 1;
-    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+        int yes = 1;
+        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
 
-    int socket_buffer = MAX_FRAME_PAYLOAD * 2;
-    setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &socket_buffer, sizeof(socket_buffer));
-    setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &socket_buffer, sizeof(socket_buffer));
+        int socket_buffer = MAX_FRAME_PAYLOAD * 2;
+        setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &socket_buffer, sizeof(socket_buffer));
+        setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &socket_buffer, sizeof(socket_buffer));
 
-    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        if (connect(fd, it->ai_addr, it->ai_addrlen) == 0) {
+            freeaddrinfo(results);
+            return fd;
+        }
+
         ESP_LOGE(TAG, "connect %s:%u failed errno=%d", host, port, errno);
         close(fd);
-        return -1;
+        fd = -1;
     }
 
-    return fd;
+    freeaddrinfo(results);
+    return -1;
 }
 
 static esp_err_t register_board(int relay_fd)

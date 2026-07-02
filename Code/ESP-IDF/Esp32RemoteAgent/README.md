@@ -71,7 +71,7 @@ Use `flash-firmware.ps1` from the repository root or from any PowerShell directo
   -AssignedPublicPort 6500
 ```
 
-`ServerHost` is injected by `flash-firmware.ps1` into the temporary build copy before compile and flash. Configure it in the script default value or pass `-ServerHost` on the command line. The script stops if `ServerHost` or `BoardKey` still uses a placeholder value.
+`ServerHost` is injected by `flash-firmware.ps1` into the temporary build copy before compile and flash. It supports an IPv4 address or DNS name, for example `soft.mybips.com`. Configure it in the script default value or pass `-ServerHost` on the command line. The script stops if `ServerHost` or `BoardKey` still uses a placeholder value.
 
 The script was added to make repeated flashing reliable on Windows. It:
 

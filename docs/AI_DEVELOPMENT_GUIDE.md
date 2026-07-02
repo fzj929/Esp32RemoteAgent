@@ -282,7 +282,7 @@ P3：
 [string]$ServerHost = "YOUR_RELAY_SERVER_IP"
 ```
 
-也可以执行脚本时传入 `-ServerHost "your-relay-server-ip"`。脚本会在烧录前检查 `ServerHost` 和 `BoardKey`，如果仍是占位值会直接停止，避免错误配置进入板子。
+也可以执行脚本时传入 `-ServerHost "your-relay-server-ip-or-domain"`。固件连接函数使用 DNS 解析，`ServerHost` 支持 IPv4 地址或域名，例如 `soft.mybips.com`。脚本会在烧录前检查 `ServerHost` 和 `BoardKey`，如果仍是占位值会直接停止，避免错误配置进入板子。
 
 只编译不烧录：
 
