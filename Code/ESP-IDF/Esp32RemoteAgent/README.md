@@ -52,7 +52,43 @@ idf.py build
 
 If the project path contains non-ASCII characters and CMake/toolchain detection fails on Windows, build from a temporary ASCII-only path such as `C:\tmp\Esp32RemoteAgentFlash`.
 
-## Flash and Monitor
+## Recommended Flash Script
+
+Use `flash-firmware.ps1` from the repository root or from any PowerShell directory:
+
+```powershell
+.\Code\ESP-IDF\Esp32RemoteAgent\flash-firmware.ps1 `
+  -WifiSsid "YOUR_WIFI_SSID" `
+  -WifiPassword "YOUR_WIFI_PASSWORD" `
+  -ServerHost "YOUR_RELAY_SERVER_IP" `
+  -Port "COM5" `
+  -BoardId "S3-0001" `
+  -BoardKey "CHANGE_THIS_DEVICE_SECRET" `
+  -AssignedPublicPort 6500
+```
+
+The script was added to make repeated flashing reliable on Windows. It:
+
+- Copies this firmware project to `C:\tmp\Esp32RemoteAgentBuild`.
+- Rewrites `sdkconfig.defaults` only in the temporary copy.
+- Sets `PROCESSOR_ARCHITECTURE=AMD64` when the automation shell does not provide it.
+- Sets `IDF_TOOLS_PATH=C:\Espressif`.
+- Uses the tested ESP-IDF Python environment at `C:\Espressif\python_env\idf5.3_py3.11_env\Scripts\python.exe`.
+- Runs `idf.py -p COMx build flash`.
+
+This avoids two common Windows problems:
+
+- ESP-IDF Kconfig failures when the source path contains Chinese or other non-ASCII characters.
+- ESP-IDF tool discovery failures when the shell does not expose the expected processor architecture environment variable.
+
+Optional flags:
+
+```powershell
+-Monitor      # open idf.py monitor after flashing
+-EraseFlash   # erase flash before build/flash
+```
+
+Manual flash is still possible from an ESP-IDF shell when the project path is ASCII-only:
 
 ```powershell
 idf.py -p COM5 flash monitor

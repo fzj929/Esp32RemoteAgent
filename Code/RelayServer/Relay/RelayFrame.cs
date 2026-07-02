@@ -72,7 +72,6 @@ public sealed record RelayFrame(RelayFrameType Type, uint ConnectionId, ReadOnly
             {
                 await stream.WriteAsync(payload, token);
             }
-            await stream.FlushAsync(token);
         }
         finally
         {

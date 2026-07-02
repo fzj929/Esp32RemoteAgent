@@ -24,6 +24,7 @@
 #include "lwip/esp_netif_net_stack.h"
 #include "lwip/inet.h"
 #include "lwip/ip4_addr.h"
+#include "lwip/tcp.h"
 #include "nvs_flash.h"
 #include "tusb.h"
 #include "tinyusb.h"
@@ -57,7 +58,7 @@ static const uint8_t FRAME_ERROR = 7;
 
 enum {
     FRAME_HEADER_LEN = 9,
-    MAX_FRAME_PAYLOAD = 4096,
+    MAX_FRAME_PAYLOAD = 8192,
     HEARTBEAT_INTERVAL_MS = 15000,
     RECONNECT_DELAY_MS = 3000,
     MAX_TUNNELS = 4,
@@ -74,7 +75,7 @@ static EventGroupHandle_t s_wifi_event_group;
 static const EventBits_t WIFI_CONNECTED_BIT = BIT0;
 static tunnel_connection_t s_tunnels[MAX_TUNNELS];
 static uint8_t s_rx_buffer[MAX_FRAME_PAYLOAD];
-static uint8_t s_pipe_buffer[1460];
+static uint8_t s_pipe_buffer[MAX_FRAME_PAYLOAD];
 static int64_t s_last_heartbeat_ms;
 static esp_netif_t *s_usb_netif;
 static led_strip_handle_t s_status_led;
@@ -463,6 +464,13 @@ static int connect_tcp_host(const char *host, uint16_t port, int timeout_ms)
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
+    int yes = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+
+    int socket_buffer = MAX_FRAME_PAYLOAD * 2;
+    setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &socket_buffer, sizeof(socket_buffer));
+    setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &socket_buffer, sizeof(socket_buffer));
+
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         ESP_LOGE(TAG, "connect %s:%u failed errno=%d", host, port, errno);
         close(fd);
@@ -848,6 +856,7 @@ static esp_err_t start_wifi(void)
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "WiFi set mode failed");
     ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_STA, &wifi_config), TAG, "WiFi set config failed");
     ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "WiFi start failed");
+    ESP_RETURN_ON_ERROR(esp_wifi_set_ps(WIFI_PS_NONE), TAG, "WiFi power save disable failed");
     return ESP_OK;
 }
 

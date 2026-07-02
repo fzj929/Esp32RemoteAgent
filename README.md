@@ -51,11 +51,52 @@ TCP 3389
 - Terminal RDP target: `192.168.77.2:3389`.
 - Operations PC connects with Remote Desktop to `relay-server-ip:assigned-port`.
 - Management page for boards and events.
-- HTTPS support through generated self-signed certificate.
-- RGB status indication:
+  - HTTPS support through generated self-signed certificate.
+  - RGB status indication:
   - Red: relay disconnected.
   - Green: relay connected and registered.
   - Blue flash: tunnel data activity.
+
+## Development Environment
+
+Recommended host environment:
+
+- Windows 10/11
+- Git for Windows
+- PowerShell 5.1 or PowerShell 7
+- .NET SDK 8.x for the relay server
+- ESP-IDF 5.3.x for the ESP32-S3 firmware
+- Python environment installed by the ESP-IDF installer
+- ESP-IDF tools installed under `C:\Espressif`
+- ESP32-S3 USB serial driver. The tested board uses `COM5`.
+
+Tested local ESP-IDF layout:
+
+```text
+C:\Espressif\frameworks\esp-idf-v5.3.1-2
+C:\Espressif\python_env\idf5.3_py3.11_env\Scripts\python.exe
+C:\Espressif\tools
+```
+
+Windows ESP-IDF notes:
+
+- Avoid building firmware directly from a project path containing Chinese or other non-ASCII characters. ESP-IDF/Kconfig can fail during path conversion.
+- Use the provided flash script. It copies the firmware project to `C:\tmp\Esp32RemoteAgentBuild`, injects runtime configuration there, then builds and flashes from the ASCII-only path.
+- Do not commit generated `sdkconfig`, `dependencies.lock`, `managed_components`, `build`, WiFi passwords, board keys, databases, certificates, or logs.
+
+Required server tools:
+
+```powershell
+dotnet --version
+dotnet build Code\RelayServer\RelayServer.sln
+```
+
+Required firmware tools:
+
+```powershell
+C:\Espressif\python_env\idf5.3_py3.11_env\Scripts\python.exe `
+  C:\Espressif\frameworks\esp-idf-v5.3.1-2\tools\idf.py --version
+```
 
 ## Security Notes
 
@@ -66,14 +107,29 @@ TCP 3389
 
 ## Quick Start
 
-Build and flash firmware:
+Build and flash firmware with the recommended script:
+
+```powershell
+.\Code\ESP-IDF\Esp32RemoteAgent\flash-firmware.ps1 `
+  -WifiSsid "YOUR_WIFI_SSID" `
+  -WifiPassword "YOUR_WIFI_PASSWORD" `
+  -ServerHost "YOUR_RELAY_SERVER_IP" `
+  -Port "COM5" `
+  -BoardId "S3-0001" `
+  -BoardKey "CHANGE_THIS_DEVICE_SECRET" `
+  -AssignedPublicPort 6500
+```
+
+The script writes real WiFi/server values only to the temporary build directory under `C:\tmp`; it does not modify tracked firmware configuration files.
+
+Manual firmware build, only when the project path is ASCII-only:
 
 ```powershell
 cd Code\ESP-IDF\Esp32RemoteAgent
 idf.py set-target esp32s3
 idf.py reconfigure
 idf.py build
-idf.py -p COM5 flash monitor
+idf.py -p COM5 flash
 ```
 
 Run relay server for development:

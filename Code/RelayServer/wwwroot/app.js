@@ -32,12 +32,11 @@ createApp({
   async mounted() {
     await this.checkAuth();
     if (this.authenticated) {
-      await this.loadAll();
-      this.timer = setInterval(this.loadAll, 5000);
+      await this.startPolling();
     }
   },
   beforeUnmount() {
-    clearInterval(this.timer);
+    this.stopPolling();
   },
   methods: {
     emptyForm() {
@@ -62,8 +61,7 @@ createApp({
 
       if (response.status === 401) {
         this.authenticated = false;
-        clearInterval(this.timer);
-        this.timer = null;
+        this.stopPolling();
       }
 
       return response;
@@ -72,6 +70,17 @@ createApp({
       const status = await fetch('/api/auth/status', { credentials: 'same-origin' }).then(r => r.json());
       this.authenticated = status.authenticated;
       this.username = status.username || '';
+    },
+    async startPolling() {
+      await this.loadAll();
+      this.stopPolling();
+      this.timer = setInterval(this.loadAll, 3000);
+    },
+    stopPolling() {
+      if (this.timer) {
+        clearInterval(this.timer);
+        this.timer = null;
+      }
     },
     async login() {
       this.loginError = '';
@@ -88,8 +97,7 @@ createApp({
       }
 
       await this.checkAuth();
-      await this.loadAll();
-      this.timer = setInterval(this.loadAll, 5000);
+      await this.startPolling();
       this.loginForm.password = '';
     },
     async logout() {
@@ -98,8 +106,7 @@ createApp({
       this.username = '';
       this.boards = [];
       this.events = [];
-      clearInterval(this.timer);
-      this.timer = null;
+      this.stopPolling();
     },
     async loadAll() {
       if (!this.authenticated) {
@@ -165,7 +172,7 @@ createApp({
       await this.loadAll();
     },
     async removeBoard(board) {
-      if (!confirm(`删除板子 ${board.boardId}？`)) {
+      if (!confirm(`确定删除板子 ${board.boardId}？`)) {
         return;
       }
       await this.request(`/api/boards/${encodeURIComponent(board.boardId)}`, { method: 'DELETE' });

@@ -14,7 +14,7 @@
           <div class="mark">R</div>
           <div>
             <strong>Relay Desk</strong>
-            <span>ESP32 S3 remote access</span>
+            <span>ESP32-S3 远程桌面中转</span>
           </div>
         </div>
         <h1>管理员登录</h1>
@@ -22,7 +22,7 @@
         <label>密码<input v-model="loginForm.password" type="password" autocomplete="current-password" required></label>
         <p class="error" v-if="loginError">{{ loginError }}</p>
         <button class="primary wide" type="submit">登录</button>
-        <p class="hint">开发运行默认密码为 admin123456；发布脚本启动时请查看 publish/admin.bootstrap.password.txt。</p>
+        <p class="hint">首次启动默认账号 admin / admin123456，登录后请立即修改密码。</p>
       </form>
     </section>
 
@@ -30,15 +30,9 @@
       <aside class="rail">
         <div class="brand">
           <div class="mark">R</div>
-          <div>
-            <strong>Relay Desk</strong>
-            <span>ESP32 S3</span>
-          </div>
+          <strong>Relay Desk</strong>
+          <span>ESP32-S3</span>
         </div>
-        <nav>
-          <button class="nav-item active" title="设备">DEV</button>
-          <button class="nav-item" title="事件">LOG</button>
-        </nav>
       </aside>
 
       <main>
@@ -74,8 +68,10 @@
         <section class="content-grid">
           <div class="panel devices">
             <div class="panel-head">
-              <h2>板子列表</h2>
-              <span>{{ boards.length }} devices</span>
+              <div>
+                <h2>板子列表</h2>
+                <span>{{ boards.length }} 台设备</span>
+              </div>
             </div>
             <div class="table">
               <div class="row header">
@@ -83,22 +79,28 @@
                 <span>板子</span>
                 <span>公网端口</span>
                 <span>终端目标</span>
-                <span>连接</span>
-                <span></span>
+                <span>连接数</span>
+                <span>操作</span>
+              </div>
+              <div class="row empty" v-if="boards.length === 0">
+                <span>暂无板子，请先新增设备。</span>
               </div>
               <div class="row" v-for="board in boards" :key="board.boardId">
-                <span><i :class="['dot', board.online ? 'on' : 'off']"></i>{{ board.online ? '在线' : '离线' }}</span>
+                <span class="status">
+                  <i :class="['dot', board.online ? 'on' : 'off']"></i>
+                  {{ board.online ? '在线' : '离线' }}
+                </span>
                 <span>
                   <strong>{{ board.name || board.boardId }}</strong>
                   <small>{{ board.boardId }}</small>
                 </span>
-                <span>{{ board.assignedPort }}</span>
-                <span>{{ board.targetHost }}:{{ board.targetPort }}</span>
+                <span class="mono">{{ board.assignedPort }}</span>
+                <span class="mono">{{ board.targetHost }}:{{ board.targetPort }}</span>
                 <span>{{ board.activeConnections }}</span>
                 <span class="row-actions">
-                  <button class="icon" title="编辑" @click="editBoard(board)">Edit</button>
-                  <button class="icon" title="断开" :disabled="!board.online" @click="disconnect(board)">Off</button>
-                  <button class="icon danger" title="删除" @click="removeBoard(board)">Del</button>
+                  <button class="icon" title="编辑" @click="editBoard(board)">编辑</button>
+                  <button class="icon" title="断开" :disabled="!board.online" @click="disconnect(board)">断开</button>
+                  <button class="icon danger" title="删除" @click="removeBoard(board)">删除</button>
                 </span>
               </div>
             </div>
@@ -106,10 +108,13 @@
 
           <div class="panel side">
             <div class="panel-head">
-              <h2>事件</h2>
-              <span>最近 200 条</span>
+              <div>
+                <h2>事件日志</h2>
+                <span>最近 200 条</span>
+              </div>
             </div>
             <ol class="events">
+              <li v-if="events.length === 0">暂无事件。</li>
               <li v-for="event in events" :key="event.timestamp + event.message">
                 <time>{{ formatTime(event.timestamp) }}</time>
                 <p>{{ event.message }}</p>
@@ -124,15 +129,15 @@
       <form method="dialog" @submit.prevent="saveBoard">
         <div class="dialog-head">
           <h2>{{ editingExisting ? '编辑板子' : '新增板子' }}</h2>
-          <button class="icon" type="button" @click="closeDialog">X</button>
+          <button class="close" type="button" @click="closeDialog">×</button>
         </div>
 
         <label>板子 ID<input v-model.trim="form.boardId" :disabled="editingExisting" required></label>
-        <label>显示名称<input v-model.trim="form.name" placeholder="现场设备名称"></label>
-        <label>认证密钥<input v-model.trim="form.authKey" :required="!editingExisting" :placeholder="editingExisting ? '留空保持不变' : ''"></label>
+        <label>显示名称<input v-model.trim="form.name" placeholder="例如：一号产线终端"></label>
+        <label>认证密钥<input v-model.trim="form.authKey" :required="!editingExisting" :placeholder="editingExisting ? '留空表示不修改' : ''"></label>
         <div class="split">
           <label>公网端口<input v-model.number="form.assignedPort" type="number" min="6500" max="6600" required></label>
-          <label>启用<select v-model="form.enabled"><option :value="true">启用</option><option :value="false">停用</option></select></label>
+          <label>启用状态<select v-model="form.enabled"><option :value="true">启用</option><option :value="false">停用</option></select></label>
         </div>
         <div class="split">
           <label>终端 IP<input v-model.trim="form.targetHost" required></label>
@@ -151,7 +156,7 @@
       <form method="dialog" @submit.prevent="changePassword">
         <div class="dialog-head">
           <h2>修改密码</h2>
-          <button class="icon" type="button" @click="closePasswordDialog">X</button>
+          <button class="close" type="button" @click="closePasswordDialog">×</button>
         </div>
         <label>当前密码<input v-model="passwordForm.currentPassword" type="password" required></label>
         <label>新密码<input v-model="passwordForm.newPassword" type="password" minlength="8" required></label>
