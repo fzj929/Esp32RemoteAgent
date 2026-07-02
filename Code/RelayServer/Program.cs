@@ -4,6 +4,7 @@ using RelayServer.Data;
 using RelayServer.Endpoints;
 using RelayServer.Options;
 using RelayServer.Relay;
+using RelayServer.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,7 +17,9 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.O
 
 builder.Services.AddSingleton<BoardRepository>();
 builder.Services.AddSingleton<AuthRepository>();
+builder.Services.AddSingleton<EventRepository>();
 builder.Services.AddSingleton<RelayHub>();
+builder.Services.AddSingleton<LoginRateLimiter>();
 builder.Services.AddHostedService<ControlChannelService>();
 builder.Services.AddHostedService<SessionMaintenanceService>();
 builder.Services.AddEndpointsApiExplorer();
@@ -44,6 +47,7 @@ var app = builder.Build();
 
 await app.Services.GetRequiredService<BoardRepository>().InitializeAsync();
 await app.Services.GetRequiredService<AuthRepository>().InitializeAsync();
+await app.Services.GetRequiredService<EventRepository>().InitializeAsync();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();

@@ -19,6 +19,7 @@ param(
     [string]$IdfToolsPath = "C:\Espressif",
     [string]$IdfPython = "C:\Espressif\python_env\idf5.3_py3.11_env\Scripts\python.exe",
     [string]$TempProjectPath = "C:\tmp\Esp32RemoteAgentBuild",
+    [switch]$BuildOnly,
     [switch]$Monitor,
     [switch]$EraseFlash
 )
@@ -131,7 +132,10 @@ $idfArgs = @("-p", $Port)
 if ($EraseFlash) {
     $idfArgs += "erase-flash"
 }
-$idfArgs += @("build", "flash")
+$idfArgs += "build"
+if (-not $BuildOnly) {
+    $idfArgs += "flash"
+}
 if ($Monitor) {
     $idfArgs += "monitor"
 }
@@ -142,9 +146,16 @@ Write-Host "[firmware] Port: $Port"
 Write-Host "[firmware] Server: $ServerHost`:$ControlPort"
 Write-Host "[firmware] Board: $BoardId public port $AssignedPublicPort"
 Write-Host "[firmware] WiFi SSID: $WifiSsid"
+Write-Host "[firmware] Mode: $(if ($BuildOnly) { 'build only' } else { 'build and flash' })"
 Write-Host "[firmware] WiFi password is not printed."
 
-& $IdfPython $idfPy @idfArgs
-if ($LASTEXITCODE -ne 0) {
-    throw "idf.py failed with exit code $LASTEXITCODE"
+Push-Location -LiteralPath $TempProjectPath
+try {
+    & $IdfPython $idfPy @idfArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "idf.py failed with exit code $LASTEXITCODE"
+    }
+}
+finally {
+    Pop-Location
 }

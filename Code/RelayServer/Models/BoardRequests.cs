@@ -11,8 +11,11 @@ public sealed record BoardEditRequest(
 
 public sealed record BoardRegisterRequest(
     string BoardId,
-    string AuthKey,
+    string? AuthKey,
     int AssignedPort,
     string? TargetHost,
     int? TargetPort,
-    string? Firmware);
+    string? Firmware,
+    string? AuthNonce,
+    long? AuthTimestampMs,
+    string? AuthSignature);

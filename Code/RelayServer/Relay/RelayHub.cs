@@ -1,9 +1,10 @@
 using System.Collections.Concurrent;
+using RelayServer.Data;
 using RelayServer.Models;
 
 namespace RelayServer.Relay;
 
-public sealed class RelayHub(ILogger<RelayHub> logger)
+public sealed class RelayHub(ILogger<RelayHub> logger, EventRepository eventRepository)
 {
     private readonly ConcurrentDictionary<string, BoardSession> _sessions = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<RelayEvent> _events = new();
@@ -36,7 +37,19 @@ public sealed class RelayHub(ILogger<RelayHub> logger)
     public void AddEvent(string level, string message)
     {
         logger.LogInformation("[{Level}] {Message}", level, message);
-        _events.Enqueue(new RelayEvent(DateTimeOffset.UtcNow, level, message));
+        var relayEvent = new RelayEvent(DateTimeOffset.UtcNow, level, message);
+        _events.Enqueue(relayEvent);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await eventRepository.AddAsync(relayEvent);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to persist relay event.");
+            }
+        });
         while (_events.Count > 300 && _events.TryDequeue(out _))
         {
         }

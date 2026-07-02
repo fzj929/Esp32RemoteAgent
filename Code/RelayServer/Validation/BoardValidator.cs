@@ -17,6 +17,11 @@ public static class BoardValidator
             return "AuthKey is required.";
         }
 
+        if (string.Equals(request.AuthKey.Trim(), "CHANGE_THIS_DEVICE_SECRET", StringComparison.Ordinal))
+        {
+            return "AuthKey must be changed from the default placeholder.";
+        }
+
         if (request.AssignedPort < options.PublicPortMin || request.AssignedPort > options.PublicPortMax)
         {
             return $"AssignedPort must be between {options.PublicPortMin} and {options.PublicPortMax}.";

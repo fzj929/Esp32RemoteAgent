@@ -60,6 +60,10 @@
             <strong>{{ activeConnections }}</strong>
           </article>
           <article>
+            <span>公网流量</span>
+            <strong>{{ formatBytes(totalBytes) }}</strong>
+          </article>
+          <article>
             <span>启用端口</span>
             <strong>{{ enabledCount }}</strong>
           </article>
@@ -79,7 +83,8 @@
                 <span>板子</span>
                 <span>公网端口</span>
                 <span>终端目标</span>
-                <span>连接数</span>
+                <span>连接</span>
+                <span>诊断</span>
                 <span>操作</span>
               </div>
               <div class="row empty" v-if="boards.length === 0">
@@ -92,13 +97,19 @@
                 </span>
                 <span>
                   <strong>{{ board.name || board.boardId }}</strong>
-                  <small>{{ board.boardId }}</small>
+                  <small>{{ board.boardId }} · {{ board.firmware || '未上报版本' }}</small>
                 </span>
                 <span class="mono">{{ board.assignedPort }}</span>
                 <span class="mono">{{ board.targetHost }}:{{ board.targetPort }}</span>
                 <span>{{ board.activeConnections }}</span>
+                <span>
+                  <small>RSSI {{ board.telemetry?.rssi ?? '-' }}</small>
+                  <small>Heap {{ formatBytes(board.telemetry?.freeHeap || 0) }}</small>
+                  <small>心跳 {{ board.lastHeartbeat ? formatTime(board.lastHeartbeat) : '-' }}</small>
+                </span>
                 <span class="row-actions">
                   <button class="icon" title="编辑" @click="editBoard(board)">编辑</button>
+                  <button class="icon" title="测试目标" @click="probeTarget(board)">测试</button>
                   <button class="icon" title="断开" :disabled="!board.online" @click="disconnect(board)">断开</button>
                   <button class="icon danger" title="删除" @click="removeBoard(board)">删除</button>
                 </span>
@@ -106,20 +117,36 @@
             </div>
           </div>
 
-          <div class="panel side">
-            <div class="panel-head">
-              <div>
-                <h2>事件日志</h2>
-                <span>最近 200 条</span>
+          <div class="side-stack">
+            <div class="panel side">
+              <div class="panel-head">
+                <div>
+                  <h2>诊断</h2>
+                  <span>服务器时间 {{ diagnostics?.serverTime ? formatTime(diagnostics.serverTime) : '-' }}</span>
+                </div>
+              </div>
+              <div class="diagnostics">
+                <p><span>上行到板子</span><strong>{{ formatBytes(diagnostics?.bytesFromPublic || 0) }}</strong></p>
+                <p><span>板子返回</span><strong>{{ formatBytes(diagnostics?.bytesFromBoard || 0) }}</strong></p>
+                <p><span>最近测试</span><strong>{{ lastProbe || '暂无' }}</strong></p>
               </div>
             </div>
-            <ol class="events">
-              <li v-if="events.length === 0">暂无事件。</li>
-              <li v-for="event in events" :key="event.timestamp + event.message">
-                <time>{{ formatTime(event.timestamp) }}</time>
-                <p>{{ event.message }}</p>
-              </li>
-            </ol>
+
+            <div class="panel side">
+              <div class="panel-head">
+                <div>
+                  <h2>事件日志</h2>
+                  <span>最近 200 条</span>
+                </div>
+              </div>
+              <ol class="events">
+                <li v-if="events.length === 0">暂无事件。</li>
+                <li v-for="event in events" :key="event.timestamp + event.message">
+                  <time>{{ formatTime(event.timestamp) }}</time>
+                  <p>{{ event.message }}</p>
+                </li>
+              </ol>
+            </div>
           </div>
         </section>
       </main>

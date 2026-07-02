@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using RelayServer.Data;
 using RelayServer.Models;
+using RelayServer.Security;
 
 namespace RelayServer.Endpoints;
 
@@ -18,13 +19,22 @@ public static class AuthEndpoints
             username = user.Identity?.Name
         }).AllowAnonymous();
 
-        group.MapPost("/login", async (LoginRequest request, AuthRepository auth, HttpContext http) =>
+        group.MapPost("/login", async (LoginRequest request, AuthRepository auth, LoginRateLimiter limiter, HttpContext http) =>
         {
+            var remoteIp = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var limiterKey = $"{remoteIp}:{request.Username.Trim()}";
+            if (limiter.IsBlocked(limiterKey, out var retryAfter))
+            {
+                return Results.Json(new { error = "Too many login failures.", retryAfterSeconds = (int)Math.Ceiling(retryAfter.TotalSeconds) }, statusCode: StatusCodes.Status429TooManyRequests);
+            }
+
             if (!await auth.ValidateAsync(request.Username, request.Password))
             {
+                limiter.RecordFailure(limiterKey);
                 return Results.Unauthorized();
             }
 
+            limiter.RecordSuccess(limiterKey);
             var claims = new List<Claim>
             {
                 new(ClaimTypes.Name, request.Username.Trim()),

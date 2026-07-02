@@ -145,6 +145,43 @@ byte 9...   : payload bytes
 - 固件终端连接和服务器连接设置 `TCP_NODELAY`。
 - 固件关闭 WiFi 省电：`esp_wifi_set_ps(WIFI_PS_NONE)`。
 - 服务器 `RelayFrame.WriteAsync` 移除每帧 `FlushAsync()`。
+- 固件心跳上报 RSSI、free heap、active tunnels、上行/下行字节数和固件版本。
+- 服务器会话统计每块板子的公网流入字节、板子返回字节、最后错误和最近心跳。
+
+## 当前已完成的 P0-P3 优化
+
+P0：
+
+- 固件增加 NVS 配置命名空间 `remote_cfg`。
+- 首次启动会将编译期配置写入 NVS，后续启动优先读取 NVS。
+- 注册报文支持 HMAC-SHA256 签名，不再要求新固件把 `authKey` 明文发给服务器。
+- 服务器仍兼容旧固件的明文 `authKey` 注册，方便滚动升级。
+- 管理后台拒绝保存默认占位密钥 `CHANGE_THIS_DEVICE_SECRET`。
+
+P1：
+
+- 固件上报更多运行状态。
+- 服务器统计每块板子的转发字节数和诊断字段。
+- `flash-firmware.ps1` 增加 `-BuildOnly`，后续 AI 可以只编译不烧录。
+
+P2：
+
+- 管理后台增加诊断区域，展示流量、RSSI、heap、最后心跳和固件版本。
+- 新增 `/api/boards/diagnostics` 诊断接口。
+- 新增 `/api/boards/{boardId}/probe-target` 服务器侧目标端口测试接口。
+- 事件日志写入 SQLite `relay_events` 表，服务重启后仍可查询最近事件。
+
+P3：
+
+- 管理员登录增加基于 IP + 用户名的失败限速。
+- Cookie 已启用 `HttpOnly` 和 `SameSite=Strict`。
+- 发布脚本已有 HTTPS 自签证书流程，生产环境仍建议换成正式证书。
+
+尚未完成、不要误判为已完成：
+
+- RDP UDP 转发尚未实现。
+- 板子控制通道 TLS 尚未实现；当前是 HMAC 注册认证 + 裸 TCP 数据通道。
+- 现场无需重刷固件的交互式配置工具尚未实现；当前 NVS 可持久化，但主要仍通过烧录脚本注入初始值。
 
 后续性能方向：
 

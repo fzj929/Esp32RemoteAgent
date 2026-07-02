@@ -10,6 +10,9 @@ ESP-IDF firmware for an ESP32-S3 board used as a field-side RDP relay agent.
 - Forwards tunnel traffic to the terminal device at `192.168.77.2:3389`.
 - Exposes a USB virtual network interface for the terminal-side link.
 - Uses a board ID, authentication key, and assigned public port.
+- Persists startup configuration in NVS after first boot.
+- Registers with HMAC-SHA256 in current firmware so the board key is not sent in plaintext.
+- Sends heartbeat telemetry including RSSI, free heap, active tunnel count, traffic counters, and firmware version.
 - Controls the onboard RGB LED:
   - Red: relay server disconnected.
   - Green: relay server connected and registered.
@@ -84,9 +87,12 @@ This avoids two common Windows problems:
 Optional flags:
 
 ```powershell
+-BuildOnly    # compile without flashing
 -Monitor      # open idf.py monitor after flashing
 -EraseFlash   # erase flash before build/flash
 ```
+
+NVS note: the firmware saves compile-time defaults into the `remote_cfg` namespace on first boot and then reads from NVS on later boots. Use `-EraseFlash` when you intentionally want to reset stored board configuration.
 
 Manual flash is still possible from an ESP-IDF shell when the project path is ASCII-only:
 

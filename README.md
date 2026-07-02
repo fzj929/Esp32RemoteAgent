@@ -46,11 +46,16 @@ TCP 3389
 
 - Fixed WiFi credentials in firmware configuration.
 - Board registration with board ID, authentication key, and assigned public port.
+- HMAC-SHA256 board registration for current firmware, with backward compatibility for older auth-key registration.
+- Firmware NVS configuration persistence after first boot.
 - Relay server control port: TCP `6555`.
 - Board public ports: normally `6500-6600`.
 - Terminal RDP target: `192.168.77.2:3389`.
 - Operations PC connects with Remote Desktop to `relay-server-ip:assigned-port`.
 - Management page for boards and events.
+- Management diagnostics for RSSI, heap, firmware version, heartbeats, traffic counters, and target probing.
+- SQLite persistence for recent relay events.
+- Administrator login failure rate limiting.
   - HTTPS support through generated self-signed certificate.
   - RGB status indication:
   - Red: relay disconnected.
@@ -121,6 +126,16 @@ Build and flash firmware with the recommended script:
 ```
 
 The script writes real WiFi/server values only to the temporary build directory under `C:\tmp`; it does not modify tracked firmware configuration files.
+
+Use `-BuildOnly` to compile without flashing:
+
+```powershell
+.\Code\ESP-IDF\Esp32RemoteAgent\flash-firmware.ps1 `
+  -WifiSsid "TEST_SSID" `
+  -WifiPassword "TEST_PASSWORD" `
+  -ServerHost "192.0.2.1" `
+  -BuildOnly
+```
 
 Manual firmware build, only when the project path is ASCII-only:
 

@@ -228,7 +228,7 @@ h2 {
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
@@ -292,7 +292,7 @@ h2 {
 
 .row {
   display: grid;
-  grid-template-columns: 86px minmax(150px, 1.4fr) 88px minmax(150px, 1fr) 70px 160px;
+  grid-template-columns: 74px minmax(150px, 1.2fr) 82px minmax(145px, 1fr) 58px minmax(130px, .9fr) 220px;
   gap: 12px;
   align-items: center;
   min-height: 64px;
@@ -373,6 +373,39 @@ h2 {
   padding: 8px 18px 18px;
   max-height: 540px;
   overflow: auto;
+}
+
+.side-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.diagnostics {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px 18px;
+}
+
+.diagnostics p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.diagnostics p:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.diagnostics span {
+  color: var(--muted);
+}
+
+.diagnostics strong {
+  text-align: right;
 }
 
 .events li {

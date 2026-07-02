@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using RelayServer.Models;
 using RelayServer.Options;
 
@@ -19,8 +20,10 @@ public sealed class BoardSession
     private TcpListener? _publicListener;
     private uint _nextConnectionId;
     private int _stopped;
+    private long _bytesFromPublic;
+    private long _bytesFromBoard;
 
-    public BoardSession(TcpClient boardClient, BoardRecord board, RelayHub hub, RelayOptions options, string remoteEndPoint)
+    public BoardSession(TcpClient boardClient, BoardRecord board, RelayHub hub, RelayOptions options, string remoteEndPoint, string? firmware)
     {
         _boardClient = boardClient;
         _board = board;
@@ -29,6 +32,7 @@ public sealed class BoardSession
         RemoteEndPoint = remoteEndPoint;
         ConnectedAt = DateTimeOffset.UtcNow;
         LastHeartbeat = ConnectedAt;
+        Firmware = firmware;
     }
 
     public string BoardId => _board.BoardId;
@@ -37,6 +41,11 @@ public sealed class BoardSession
     public DateTimeOffset LastHeartbeat { get; private set; }
     public string RemoteEndPoint { get; }
     public int ActiveConnectionCount => _connections.Count;
+    public string? Firmware { get; private set; }
+    public string? LastError { get; private set; }
+    public BoardTelemetry? Telemetry { get; private set; }
+    public long BytesFromPublic => Interlocked.Read(ref _bytesFromPublic);
+    public long BytesFromBoard => Interlocked.Read(ref _bytesFromBoard);
 
     public async Task RunAsync(CancellationToken externalToken)
     {
@@ -120,6 +129,7 @@ public sealed class BoardSession
                     break;
                 }
 
+                Interlocked.Add(ref _bytesFromPublic, read);
                 await RelayFrame.WriteAsync(_boardStream, RelayFrameType.Data, connection.Id, buffer.AsMemory(0, read), token, _writeLock);
             }
         }
@@ -147,8 +157,10 @@ public sealed class BoardSession
             {
                 case RelayFrameType.Heartbeat:
                     LastHeartbeat = DateTimeOffset.UtcNow;
+                    ParseHeartbeat(frame.Payload);
                     break;
                 case RelayFrameType.Data:
+                    Interlocked.Add(ref _bytesFromBoard, frame.Payload.Length);
                     await WriteToPublicClientAsync(frame.ConnectionId, frame.Payload, token);
                     break;
                 case RelayFrameType.Close:
@@ -158,6 +170,7 @@ public sealed class BoardSession
                     var message = frame.Payload.IsEmpty
                         ? "no detail"
                         : Encoding.UTF8.GetString(frame.Payload.Span);
+                    LastError = message;
                     _hub.AddEvent("error", $"Board {_board.BoardId} reported connection {frame.ConnectionId} error: {message}.");
                     await ClosePublicConnectionAsync(frame.ConnectionId);
                     break;
@@ -192,4 +205,48 @@ public sealed class BoardSession
 
         return Task.CompletedTask;
     }
+
+    private void ParseHeartbeat(ReadOnlyMemory<byte> payload)
+    {
+        if (payload.IsEmpty)
+        {
+            return;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(payload);
+            var root = doc.RootElement;
+            var firmware = GetString(root, "firmware") ?? Firmware;
+            Firmware = firmware;
+            Telemetry = new BoardTelemetry(
+                GetInt64(root, "uptimeMs"),
+                GetInt64(root, "freeHeap"),
+                GetInt32(root, "rssi"),
+                GetInt32(root, "activeTunnels"),
+                GetInt64(root, "bytesFromServer"),
+                GetInt64(root, "bytesFromTerminal"),
+                GetString(root, "usbNetif"),
+                firmware);
+        }
+        catch (JsonException ex)
+        {
+            LastError = $"invalid heartbeat payload: {ex.Message}";
+        }
+    }
+
+    private static string? GetString(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    private static long? GetInt64(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var value) && value.TryGetInt64(out var number)
+            ? number
+            : null;
+
+    private static int? GetInt32(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var value) && value.TryGetInt32(out var number)
+            ? number
+            : null;
 }

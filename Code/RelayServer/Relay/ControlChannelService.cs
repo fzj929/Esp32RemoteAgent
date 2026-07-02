@@ -70,7 +70,7 @@ public sealed class ControlChannelService(
                 return;
             }
 
-            if (!CryptographicEquals(board.AuthKey, register.AuthKey))
+            if (!ValidateBoardAuth(board, register))
             {
                 await RelayFrame.WriteJsonAsync(stream, RelayFrameType.Error, 0, new { error = "auth failed" }, stoppingToken);
                 client.Close();
@@ -84,7 +84,7 @@ public sealed class ControlChannelService(
                 return;
             }
 
-            var session = new BoardSession(client, board, hub, relayOptions, remote);
+            var session = new BoardSession(client, board, hub, relayOptions, remote, register.Firmware);
             await hub.RegisterAsync(session);
             await RelayFrame.WriteJsonAsync(stream, RelayFrameType.RegisterAck, 0, new { ok = true, board.AssignedPort }, stoppingToken);
             await session.RunAsync(stoppingToken);
@@ -100,6 +100,37 @@ public sealed class ControlChannelService(
         {
             client.Close();
         }
+    }
+
+    private static bool ValidateBoardAuth(BoardRecord board, BoardRegisterRequest register)
+    {
+        if (!string.IsNullOrWhiteSpace(register.AuthSignature) &&
+            !string.IsNullOrWhiteSpace(register.AuthNonce) &&
+            register.AuthTimestampMs is not null)
+        {
+            var payload = BuildAuthPayload(register);
+            var signature = ComputeHmacHex(board.AuthKey, payload);
+            return CryptographicEquals(signature, register.AuthSignature);
+        }
+
+        return !string.IsNullOrEmpty(register.AuthKey) && CryptographicEquals(board.AuthKey, register.AuthKey);
+    }
+
+    private static string BuildAuthPayload(BoardRegisterRequest register) =>
+        string.Join('|',
+            register.BoardId,
+            register.AssignedPort.ToString(),
+            register.TargetHost ?? string.Empty,
+            register.TargetPort?.ToString() ?? string.Empty,
+            register.Firmware ?? string.Empty,
+            register.AuthNonce ?? string.Empty,
+            register.AuthTimestampMs?.ToString() ?? string.Empty);
+
+    private static string ComputeHmacHex(string key, string payload)
+    {
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(key));
+        var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     private static bool CryptographicEquals(string left, string right)

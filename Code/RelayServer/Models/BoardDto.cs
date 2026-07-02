@@ -14,7 +14,12 @@ public sealed record BoardDto(
     int ActiveConnections,
     DateTimeOffset? ConnectedAt,
     DateTimeOffset? LastHeartbeat,
-    string? RemoteEndPoint)
+    string? RemoteEndPoint,
+    string? Firmware,
+    long BytesFromPublic,
+    long BytesFromBoard,
+    string? LastError,
+    BoardTelemetry? Telemetry)
 {
     public static BoardDto From(BoardRecord board, BoardSession? session) =>
         new(
@@ -29,5 +34,10 @@ public sealed record BoardDto(
             session?.ActiveConnectionCount ?? 0,
             session?.ConnectedAt,
             session?.LastHeartbeat,
-            session?.RemoteEndPoint);
+            session?.RemoteEndPoint,
+            session?.Firmware,
+            session?.BytesFromPublic ?? 0,
+            session?.BytesFromBoard ?? 0,
+            session?.LastError,
+            session?.Telemetry);
 }
