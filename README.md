@@ -138,6 +138,17 @@ C:\Espressif\python_env\idf5.3_py3.11_env\Scripts\python.exe `
   -BuildOnly
 ```
 
+只烧录已有构建产物：
+
+```powershell
+cd C:\tmp\Esp32RemoteAgentBuild
+C:\Espressif\python_env\idf5.3_py3.11_env\Scripts\python.exe `
+  C:\Espressif\frameworks\esp-idf-v5.3.1-2\tools\idf.py `
+  -p COM5 flash
+```
+
+这个方式适用于已经通过 `flash-firmware.ps1` 编译过固件，并且 `C:\tmp\Esp32RemoteAgentBuild` 目录和其中的 `build` 产物还存在时。它只把现有构建产物重新烧录到板子，不会重新注入 WiFi、中转服务器地址、`BoardKey` 或其他配置。修改过任何配置或代码后，应重新运行 `flash-firmware.ps1` 编译并烧录。
+
 仅当项目路径为纯 ASCII 路径时，才建议手动编译固件：
 
 ```powershell
