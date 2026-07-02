@@ -1,0 +1,205 @@
+const { createApp } = Vue;
+
+createApp({
+  data() {
+    return {
+      authenticated: false,
+      username: '',
+      boards: [],
+      events: [],
+      error: '',
+      loginError: '',
+      passwordError: '',
+      passwordMessage: '',
+      editingExisting: false,
+      form: this.emptyForm(),
+      loginForm: { username: 'admin', password: '' },
+      passwordForm: { currentPassword: '', newPassword: '' },
+      timer: null
+    };
+  },
+  computed: {
+    onlineCount() {
+      return this.boards.filter(x => x.online).length;
+    },
+    activeConnections() {
+      return this.boards.reduce((sum, x) => sum + x.activeConnections, 0);
+    },
+    enabledCount() {
+      return this.boards.filter(x => x.enabled).length;
+    }
+  },
+  async mounted() {
+    await this.checkAuth();
+    if (this.authenticated) {
+      await this.loadAll();
+      this.timer = setInterval(this.loadAll, 5000);
+    }
+  },
+  beforeUnmount() {
+    clearInterval(this.timer);
+  },
+  methods: {
+    emptyForm() {
+      return {
+        boardId: '',
+        name: '',
+        authKey: '',
+        assignedPort: 6500,
+        enabled: true,
+        targetHost: '192.168.77.2',
+        targetPort: 3389
+      };
+    },
+    async request(path, options = {}) {
+      const response = await fetch(path, {
+        credentials: 'same-origin',
+        ...options,
+        headers: {
+          ...(options.headers || {})
+        }
+      });
+
+      if (response.status === 401) {
+        this.authenticated = false;
+        clearInterval(this.timer);
+        this.timer = null;
+      }
+
+      return response;
+    },
+    async checkAuth() {
+      const status = await fetch('/api/auth/status', { credentials: 'same-origin' }).then(r => r.json());
+      this.authenticated = status.authenticated;
+      this.username = status.username || '';
+    },
+    async login() {
+      this.loginError = '';
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.loginForm)
+      });
+
+      if (!response.ok) {
+        this.loginError = '用户名或密码错误';
+        return;
+      }
+
+      await this.checkAuth();
+      await this.loadAll();
+      this.timer = setInterval(this.loadAll, 5000);
+      this.loginForm.password = '';
+    },
+    async logout() {
+      await this.request('/api/auth/logout', { method: 'POST' });
+      this.authenticated = false;
+      this.username = '';
+      this.boards = [];
+      this.events = [];
+      clearInterval(this.timer);
+      this.timer = null;
+    },
+    async loadAll() {
+      if (!this.authenticated) {
+        return;
+      }
+
+      const [boardsResponse, eventsResponse] = await Promise.all([
+        this.request('/api/boards'),
+        this.request('/api/events')
+      ]);
+
+      if (!boardsResponse.ok || !eventsResponse.ok) {
+        return;
+      }
+
+      this.boards = await boardsResponse.json();
+      this.events = await eventsResponse.json();
+    },
+    newBoard() {
+      this.error = '';
+      this.editingExisting = false;
+      this.form = this.emptyForm();
+      this.$refs.dialog.showModal();
+    },
+    editBoard(board) {
+      this.error = '';
+      this.editingExisting = true;
+      this.form = {
+        boardId: board.boardId,
+        name: board.name,
+        authKey: '',
+        assignedPort: board.assignedPort,
+        enabled: board.enabled,
+        targetHost: board.targetHost,
+        targetPort: board.targetPort
+      };
+      this.$refs.dialog.showModal();
+    },
+    closeDialog() {
+      this.$refs.dialog.close();
+    },
+    async saveBoard() {
+      this.error = '';
+      const method = this.editingExisting ? 'PUT' : 'POST';
+      const path = this.editingExisting ? `/api/boards/${encodeURIComponent(this.form.boardId)}` : '/api/boards';
+      const response = await this.request(path, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.form)
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({ error: '保存失败' }));
+        this.error = body.error || '保存失败';
+        return;
+      }
+
+      this.closeDialog();
+      await this.loadAll();
+    },
+    async disconnect(board) {
+      await this.request(`/api/boards/${encodeURIComponent(board.boardId)}/disconnect`, { method: 'POST' });
+      await this.loadAll();
+    },
+    async removeBoard(board) {
+      if (!confirm(`删除板子 ${board.boardId}？`)) {
+        return;
+      }
+      await this.request(`/api/boards/${encodeURIComponent(board.boardId)}`, { method: 'DELETE' });
+      await this.loadAll();
+    },
+    openPasswordDialog() {
+      this.passwordError = '';
+      this.passwordMessage = '';
+      this.passwordForm = { currentPassword: '', newPassword: '' };
+      this.$refs.passwordDialog.showModal();
+    },
+    closePasswordDialog() {
+      this.$refs.passwordDialog.close();
+    },
+    async changePassword() {
+      this.passwordError = '';
+      this.passwordMessage = '';
+      const response = await this.request('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.passwordForm)
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({ error: '修改失败' }));
+        this.passwordError = body.error || '修改失败';
+        return;
+      }
+
+      this.passwordMessage = '密码已修改';
+      this.passwordForm = { currentPassword: '', newPassword: '' };
+    },
+    formatTime(value) {
+      return new Date(value).toLocaleString();
+    }
+  }
+}).mount('#app');

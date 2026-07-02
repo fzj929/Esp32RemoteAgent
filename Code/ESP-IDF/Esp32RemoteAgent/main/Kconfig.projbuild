@@ -1,0 +1,58 @@
+menu "Remote Agent Configuration"
+
+config REMOTE_AGENT_WIFI_SSID
+    string "WiFi SSID"
+    default "YOUR_WIFI_SSID"
+
+config REMOTE_AGENT_WIFI_PASSWORD
+    string "WiFi Password"
+    default "YOUR_WIFI_PASSWORD"
+
+config REMOTE_AGENT_SERVER_HOST
+    string "Relay server IPv4 address"
+    default "YOUR_RELAY_SERVER_IP"
+
+config REMOTE_AGENT_SERVER_CONTROL_PORT
+    int "Relay server control port"
+    range 1 65535
+    default 6555
+
+config REMOTE_AGENT_BOARD_ID
+    string "Board ID"
+    default "S3-0001"
+
+config REMOTE_AGENT_BOARD_KEY
+    string "Board authentication key"
+    default "CHANGE_THIS_DEVICE_SECRET"
+
+config REMOTE_AGENT_ASSIGNED_PUBLIC_PORT
+    int "Assigned public RDP port"
+    range 6500 6600
+    default 6500
+
+config REMOTE_AGENT_TERMINAL_RDP_HOST
+    string "Terminal RDP host"
+    default "192.168.77.2"
+
+config REMOTE_AGENT_TERMINAL_RDP_PORT
+    int "Terminal RDP port"
+    range 1 65535
+    default 3389
+
+config REMOTE_AGENT_STATUS_LED_ENABLED
+    bool "Enable onboard RGB status LED"
+    default y
+
+config REMOTE_AGENT_STATUS_LED_GPIO
+    int "Onboard RGB LED GPIO"
+    depends on REMOTE_AGENT_STATUS_LED_ENABLED
+    range 0 48
+    default 48
+
+config REMOTE_AGENT_STATUS_LED_BRIGHTNESS
+    int "RGB status LED brightness"
+    depends on REMOTE_AGENT_STATUS_LED_ENABLED
+    range 1 255
+    default 80
+
+endmenu

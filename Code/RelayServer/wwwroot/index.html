@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP32 远程代理管理后台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="app" v-cloak>
+    <section class="login-shell" v-if="!authenticated">
+      <form class="login-card" @submit.prevent="login">
+        <div class="brand-row">
+          <div class="mark">R</div>
+          <div>
+            <strong>Relay Desk</strong>
+            <span>ESP32 S3 remote access</span>
+          </div>
+        </div>
+        <h1>管理员登录</h1>
+        <label>用户名<input v-model.trim="loginForm.username" autocomplete="username" required></label>
+        <label>密码<input v-model="loginForm.password" type="password" autocomplete="current-password" required></label>
+        <p class="error" v-if="loginError">{{ loginError }}</p>
+        <button class="primary wide" type="submit">登录</button>
+        <p class="hint">开发运行默认密码为 admin123456；发布脚本启动时请查看 publish/admin.bootstrap.password.txt。</p>
+      </form>
+    </section>
+
+    <template v-else>
+      <aside class="rail">
+        <div class="brand">
+          <div class="mark">R</div>
+          <div>
+            <strong>Relay Desk</strong>
+            <span>ESP32 S3</span>
+          </div>
+        </div>
+        <nav>
+          <button class="nav-item active" title="设备">DEV</button>
+          <button class="nav-item" title="事件">LOG</button>
+        </nav>
+      </aside>
+
+      <main>
+        <section class="topbar">
+          <div>
+            <p class="kicker">TCP 3389 tunnel control</p>
+            <h1>远程桌面中转后台</h1>
+          </div>
+          <div class="actions">
+            <span class="user-pill">{{ username }}</span>
+            <button class="ghost" @click="openPasswordDialog">修改密码</button>
+            <button class="ghost" @click="loadAll">刷新</button>
+            <button class="primary" @click="newBoard">新增板子</button>
+            <button class="ghost" @click="logout">退出</button>
+          </div>
+        </section>
+
+        <section class="stats">
+          <article>
+            <span>在线板子</span>
+            <strong>{{ onlineCount }}</strong>
+          </article>
+          <article>
+            <span>活动连接</span>
+            <strong>{{ activeConnections }}</strong>
+          </article>
+          <article>
+            <span>启用端口</span>
+            <strong>{{ enabledCount }}</strong>
+          </article>
+        </section>
+
+        <section class="content-grid">
+          <div class="panel devices">
+            <div class="panel-head">
+              <h2>板子列表</h2>
+              <span>{{ boards.length }} devices</span>
+            </div>
+            <div class="table">
+              <div class="row header">
+                <span>状态</span>
+                <span>板子</span>
+                <span>公网端口</span>
+                <span>终端目标</span>
+                <span>连接</span>
+                <span></span>
+              </div>
+              <div class="row" v-for="board in boards" :key="board.boardId">
+                <span><i :class="['dot', board.online ? 'on' : 'off']"></i>{{ board.online ? '在线' : '离线' }}</span>
+                <span>
+                  <strong>{{ board.name || board.boardId }}</strong>
+                  <small>{{ board.boardId }}</small>
+                </span>
+                <span>{{ board.assignedPort }}</span>
+                <span>{{ board.targetHost }}:{{ board.targetPort }}</span>
+                <span>{{ board.activeConnections }}</span>
+                <span class="row-actions">
+                  <button class="icon" title="编辑" @click="editBoard(board)">Edit</button>
+                  <button class="icon" title="断开" :disabled="!board.online" @click="disconnect(board)">Off</button>
+                  <button class="icon danger" title="删除" @click="removeBoard(board)">Del</button>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel side">
+            <div class="panel-head">
+              <h2>事件</h2>
+              <span>最近 200 条</span>
+            </div>
+            <ol class="events">
+              <li v-for="event in events" :key="event.timestamp + event.message">
+                <time>{{ formatTime(event.timestamp) }}</time>
+                <p>{{ event.message }}</p>
+              </li>
+            </ol>
+          </div>
+        </section>
+      </main>
+    </template>
+
+    <dialog ref="dialog" class="editor">
+      <form method="dialog" @submit.prevent="saveBoard">
+        <div class="dialog-head">
+          <h2>{{ editingExisting ? '编辑板子' : '新增板子' }}</h2>
+          <button class="icon" type="button" @click="closeDialog">X</button>
+        </div>
+
+        <label>板子 ID<input v-model.trim="form.boardId" :disabled="editingExisting" required></label>
+        <label>显示名称<input v-model.trim="form.name" placeholder="现场设备名称"></label>
+        <label>认证密钥<input v-model.trim="form.authKey" :required="!editingExisting" :placeholder="editingExisting ? '留空保持不变' : ''"></label>
+        <div class="split">
+          <label>公网端口<input v-model.number="form.assignedPort" type="number" min="6500" max="6600" required></label>
+          <label>启用<select v-model="form.enabled"><option :value="true">启用</option><option :value="false">停用</option></select></label>
+        </div>
+        <div class="split">
+          <label>终端 IP<input v-model.trim="form.targetHost" required></label>
+          <label>终端端口<input v-model.number="form.targetPort" type="number" min="1" max="65535" required></label>
+        </div>
+
+        <p class="error" v-if="error">{{ error }}</p>
+        <div class="dialog-actions">
+          <button class="ghost dark" type="button" @click="closeDialog">取消</button>
+          <button class="primary" type="submit">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog ref="passwordDialog" class="editor">
+      <form method="dialog" @submit.prevent="changePassword">
+        <div class="dialog-head">
+          <h2>修改密码</h2>
+          <button class="icon" type="button" @click="closePasswordDialog">X</button>
+        </div>
+        <label>当前密码<input v-model="passwordForm.currentPassword" type="password" required></label>
+        <label>新密码<input v-model="passwordForm.newPassword" type="password" minlength="8" required></label>
+        <p class="error" v-if="passwordError">{{ passwordError }}</p>
+        <p class="success" v-if="passwordMessage">{{ passwordMessage }}</p>
+        <div class="dialog-actions">
+          <button class="ghost dark" type="button" @click="closePasswordDialog">取消</button>
+          <button class="primary" type="submit">保存</button>
+        </div>
+      </form>
+    </dialog>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

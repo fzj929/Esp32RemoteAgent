@@ -1,0 +1,42 @@
+# Build outputs
+**/bin/
+**/obj/
+**/build/
+**/build-*/
+**/publish/
+**/.vs/
+**/.vscode/
+**/.idea/
+**/.metadata/
+**/tool_set_config.json
+
+# ESP-IDF generated files
+**/sdkconfig
+**/sdkconfig.old
+**/managed_components/
+**/dependencies.lock
+
+# Runtime data
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.log
+**/*.pid
+**/server.out.log
+**/server.err.log
+**/DataProtectionKeys/
+
+# Certificates and generated secrets
+**/certs/
+**/*.pfx
+**/*.pem
+**/*.key
+**/*.crt
+**/*.password.txt
+**/admin.bootstrap.password.txt
+
+# OS/temp files
+Thumbs.db
+.DS_Store
+*.tmp
+*.bak
