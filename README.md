@@ -118,6 +118,14 @@ C:\Espressif\python_env\idf5.3_py3.11_env\Scripts\python.exe `
   -BoardKey "CHANGE_THIS_DEVICE_SECRET"
 ```
 
+中转服务器地址会由 `flash-firmware.ps1` 写入临时构建目录中的固件配置，再编译烧录到板子。可以直接修改脚本参数默认值：
+
+```powershell
+[string]$ServerHost = "YOUR_RELAY_SERVER_IP"
+```
+
+也可以在执行脚本时通过 `-ServerHost` 覆盖。烧录前必须把 `ServerHost` 和 `BoardKey` 改成真实值，否则脚本会停止，避免把占位配置烧进板子。
+
 脚本只会把真实 WiFi 和服务器地址写入 `C:\tmp` 下的临时构建目录，不会修改仓库中被 Git 跟踪的固件配置文件。
 
 只编译不烧录：

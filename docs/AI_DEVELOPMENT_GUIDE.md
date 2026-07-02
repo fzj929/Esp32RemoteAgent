@@ -276,6 +276,14 @@ P3：
 5. 使用 `C:\Espressif\python_env\idf5.3_py3.11_env\Scripts\python.exe` 调用 `idf.py`。
 6. 执行 `idf.py -p COMx build flash`。
 
+中转服务器地址必须通过 `flash-firmware.ps1` 配置后再烧录。可以直接修改脚本里的参数默认值：
+
+```powershell
+[string]$ServerHost = "YOUR_RELAY_SERVER_IP"
+```
+
+也可以执行脚本时传入 `-ServerHost "your-relay-server-ip"`。脚本会在烧录前检查 `ServerHost` 和 `BoardKey`，如果仍是占位值会直接停止，避免错误配置进入板子。
+
 只编译不烧录：
 
 ```powershell

@@ -5,8 +5,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$WifiPassword,
 
-    [Parameter(Mandatory = $true)]
-    [string]$ServerHost,
+    [string]$ServerHost = "YOUR_RELAY_SERVER_IP",
 
     [string]$Port = "COM5",
     [string]$BoardId = "S3-0001",
@@ -89,6 +88,14 @@ Assert-PathExists -Path $sourceProject -Description "Firmware source project"
 Assert-PathExists -Path $idfExport -Description "ESP-IDF export script"
 Assert-PathExists -Path $idfPy -Description "ESP-IDF idf.py"
 Assert-PathExists -Path $IdfPython -Description "ESP-IDF Python environment"
+
+if ([string]::IsNullOrWhiteSpace($ServerHost) -or $ServerHost -eq "YOUR_RELAY_SERVER_IP") {
+    throw "ServerHost must be configured before flashing. Edit flash-firmware.ps1 or pass -ServerHost `"your-relay-server-ip`"."
+}
+
+if ([string]::IsNullOrWhiteSpace($BoardKey) -or $BoardKey -eq "CHANGE_THIS_DEVICE_SECRET") {
+    throw "BoardKey must be configured before flashing. Edit flash-firmware.ps1 or pass -BoardKey `"your-device-secret`"."
+}
 
 if (-not $TempProjectPath.StartsWith("C:\tmp\", [StringComparison]::OrdinalIgnoreCase)) {
     throw "TempProjectPath must be under C:\tmp to keep cleanup safe. Current value: $TempProjectPath"
