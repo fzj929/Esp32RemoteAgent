@@ -173,3 +173,7 @@ cd Code\RelayServer
 
 - [ESP-IDF 固件说明](Code/ESP-IDF/Esp32RemoteAgent/README.md)
 - [AI 后续开发指南](docs/AI_DEVELOPMENT_GUIDE.md)
+
+## 开源协议
+
+本项目使用 MIT License 开源，详见 [LICENSE](LICENSE)。
