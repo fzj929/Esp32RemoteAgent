@@ -40,9 +40,14 @@ Code/
       sdkconfig.defaults
       main/
         main.c
+        relay_client.c/.h
         relay_protocol.c/.h
         remote_config.c/.h
         status_led.c/.h
+        tcp_utils.c/.h
+        tunnel.c/.h
+        usb_net.c/.h
+        wifi_client.c/.h
         Kconfig.projbuild
         idf_component.yml
   RelayServer/
@@ -59,9 +64,14 @@ Code/
 核心入口：
 
 - 固件主程序：[main.c](../Code/ESP-IDF/Esp32RemoteAgent/main/main.c)
+- Relay 客户端主循环：[relay_client.c](../Code/ESP-IDF/Esp32RemoteAgent/main/relay_client.c)
 - Relay 帧协议工具：[relay_protocol.c](../Code/ESP-IDF/Esp32RemoteAgent/main/relay_protocol.c)
 - 固件配置/NVS：[remote_config.c](../Code/ESP-IDF/Esp32RemoteAgent/main/remote_config.c)
 - RGB 状态灯：[status_led.c](../Code/ESP-IDF/Esp32RemoteAgent/main/status_led.c)
+- 终端 TCP 隧道：[tunnel.c](../Code/ESP-IDF/Esp32RemoteAgent/main/tunnel.c)
+- USB NCM 虚拟网卡：[usb_net.c](../Code/ESP-IDF/Esp32RemoteAgent/main/usb_net.c)
+- WiFi STA 客户端：[wifi_client.c](../Code/ESP-IDF/Esp32RemoteAgent/main/wifi_client.c)
+- TCP socket 工具：[tcp_utils.c](../Code/ESP-IDF/Esp32RemoteAgent/main/tcp_utils.c)
 - 固件烧录脚本：[flash-firmware.ps1](../Code/ESP-IDF/Esp32RemoteAgent/flash-firmware.ps1)
 - 中转服务器入口：[Program.cs](../Code/RelayServer/Program.cs)
 - 中转核心：[Relay](../Code/RelayServer/Relay)
@@ -132,28 +142,34 @@ byte 9...   : payload bytes
 
 入口函数：`app_main`
 
-当前固件已经开始从单一 `main.c` 拆分：
+当前固件已经完成主要职责拆分：
 
-- `main.c`：保留启动顺序、WiFi、USB NCM、relay 连接和 tunnel 调度。后续应继续拆小。
+- `main.c`：只保留启动装配，负责 NVS、配置加载、状态灯、tunnel、WiFi、USB NCM、relay client 初始化。
+- `relay_client.c/.h`：中转服务器注册、服务器下发配置、心跳、重连主循环、relay 帧分发。
 - `relay_protocol.c/.h`：帧读写、JSON 小工具、HMAC。
 - `remote_config.c/.h`：编译期配置、NVS 首次落地、NVS 读取。
 - `status_led.c/.h`：RGB 状态灯初始化、连接状态、数据蓝灯闪烁。
+- `tcp_utils.c/.h`：DNS 解析、TCP 连接、socket 关闭、完整写入。
+- `tunnel.c/.h`：终端 TCP 连接表、读写泵、关闭逻辑、上下行字节统计。
+- `usb_net.c/.h`：TinyUSB NCM 描述符、USB netif、收发回调。
+- `wifi_client.c/.h`：WiFi STA 初始化、断线重连、连接等待。
 
-后续推荐继续拆分顺序：
+后续如果继续优化，优先做行为能力而不是继续机械拆文件：
 
-1. `usb_net.c/.h`：TinyUSB NCM 描述符、USB netif、收发回调。
-2. `relay_client.c/.h`：中转服务器注册、心跳、重连主循环。
-3. `tunnel.c/.h`：终端 TCP 连接表、读写泵、关闭逻辑。
+1. RDP UDP 3389 转发。
+2. relay 控制通道 TLS。
+3. 现场免重刷固件配置工具。
+4. Windows RNDIS 兼容模式。
 
 启动顺序：
 
 1. 初始化 NVS。
 2. 加载配置，首次启动会把编译期配置写入 NVS，后续优先读取 NVS。
 3. 初始化 RGB 状态灯。
-4. 初始化 tunnel 数组。
+4. 初始化 tunnel 模块。
 5. 启动 WiFi STA。
 6. 启动 USB NCM 虚拟网卡。
-7. 在 Core 1 上启动 `relay_task`。
+7. 通过 `relay_client_start` 在 Core 1 上启动 `relay_task`。
 
 重要配置来自 `sdkconfig.defaults` 或 `idf.py menuconfig`：
 
