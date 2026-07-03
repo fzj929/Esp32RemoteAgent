@@ -292,7 +292,7 @@ h2 {
 
 .row {
   display: grid;
-  grid-template-columns: 74px minmax(150px, 1.2fr) 82px minmax(145px, 1fr) 58px minmax(130px, .9fr) 220px;
+  grid-template-columns: 74px minmax(150px, 1.2fr) 82px minmax(145px, 1fr) 58px minmax(130px, .9fr) 274px;
   gap: 12px;
   align-items: center;
   min-height: 64px;
@@ -341,6 +341,11 @@ h2 {
   box-shadow: 0 0 0 4px rgba(31, 157, 98, .12);
 }
 
+.dot.disabled {
+  background: var(--warning);
+  box-shadow: 0 0 0 4px rgba(214, 90, 49, .12);
+}
+
 .mono {
   font-family: Consolas, "SFMono-Regular", monospace;
 }
@@ -356,6 +361,11 @@ h2 {
 
 .icon.danger {
   color: #a23a20;
+}
+
+.icon.toggle {
+  color: var(--accent);
+  font-weight: 700;
 }
 
 .close {

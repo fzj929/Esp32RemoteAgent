@@ -185,6 +185,31 @@ createApp({
       await this.request(`/api/boards/${encodeURIComponent(board.boardId)}/disconnect`, { method: 'POST' });
       await this.loadAll();
     },
+    async toggleBoardEnabled(board) {
+      const nextEnabled = !board.enabled;
+      const response = await this.request(`/api/boards/${encodeURIComponent(board.boardId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          boardId: board.boardId,
+          name: board.name || board.boardId,
+          authKey: '',
+          assignedPort: board.assignedPort,
+          enabled: nextEnabled,
+          targetHost: board.targetHost,
+          targetPort: board.targetPort
+        })
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({ error: '切换状态失败' }));
+        this.lastProbe = body.error || '切换状态失败';
+        return;
+      }
+
+      this.lastProbe = `${board.boardId} 已${nextEnabled ? '启用' : '禁用'}`;
+      await this.loadAll();
+    },
     async probeTarget(board) {
       this.lastProbe = '正在测试...';
       const response = await this.request(`/api/boards/${encodeURIComponent(board.boardId)}/probe-target`, { method: 'POST' });

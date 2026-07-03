@@ -92,8 +92,8 @@
               </div>
               <div class="row" v-for="board in boards" :key="board.boardId">
                 <span class="status">
-                  <i :class="['dot', board.online ? 'on' : 'off']"></i>
-                  {{ board.online ? '在线' : '离线' }}
+                  <i :class="['dot', board.online ? 'on' : 'off', !board.enabled ? 'disabled' : '']"></i>
+                  {{ board.enabled ? (board.online ? '在线' : '离线') : '禁用' }}
                 </span>
                 <span>
                   <strong>{{ board.name || board.boardId }}</strong>
@@ -108,6 +108,9 @@
                   <small>心跳 {{ board.lastHeartbeat ? formatTime(board.lastHeartbeat) : '-' }}</small>
                 </span>
                 <span class="row-actions">
+                  <button class="icon toggle" :title="board.enabled ? '禁用板子' : '启用板子'" @click="toggleBoardEnabled(board)">
+                    {{ board.enabled ? '禁用' : '启用' }}
+                  </button>
                   <button class="icon" title="编辑" @click="editBoard(board)">编辑</button>
                   <button class="icon" title="测试目标" @click="probeTarget(board)">测试</button>
                   <button class="icon" title="断开" :disabled="!board.online" @click="disconnect(board)">断开</button>

@@ -149,6 +149,20 @@ C:\Espressif\python_env\idf5.3_py3.11_env\Scripts\python.exe `
 
 这个方式适用于已经通过 `flash-firmware.ps1` 编译过固件，并且 `C:\tmp\Esp32RemoteAgentBuild` 目录和其中的 `build` 产物还存在时。它只把现有构建产物重新烧录到板子，不会重新注入 WiFi、中转服务器地址、`BoardKey` 或其他配置。修改过任何配置或代码后，应重新运行 `flash-firmware.ps1` 编译并烧录。
 
+修改 WiFi、中转服务器地址或 `BoardKey` 后重新烧录：
+
+```powershell
+.\Code\ESP-IDF\Esp32RemoteAgent\flash-firmware.ps1 `
+  -WifiSsid "YOUR_WIFI_SSID" `
+  -WifiPassword "YOUR_WIFI_PASSWORD" `
+  -ServerHost "YOUR_RELAY_SERVER_IP_OR_DOMAIN" `
+  -BoardKey "YOUR_DEVICE_SECRET" `
+  -Port "COM5" `
+  -EraseFlash
+```
+
+固件会把首次启动配置写入 NVS，并在后续启动时优先读取 NVS。只执行普通 `flash` 不会清除 NVS，所以如果板子之前已经保存过 `soft.mybips.com`，即使新的 `sdkconfig.defaults` 里是 `1.12.218.7`，启动日志仍可能继续显示旧服务器地址。`-EraseFlash` 会清除 NVS，让板子重新采用本次编译烧录进去的 WiFi、服务器地址和 `BoardKey`。适用场景是更换中转服务器、修改 WiFi、修改板子密钥、或排查“烧录后仍读取旧配置”的问题。
+
 仅当项目路径为纯 ASCII 路径时，才建议手动编译固件：
 
 ```powershell

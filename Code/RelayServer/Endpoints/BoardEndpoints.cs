@@ -4,7 +4,6 @@ using RelayServer.Options;
 using RelayServer.Relay;
 using RelayServer.Validation;
 using System.Diagnostics;
-using System.Net.Sockets;
 
 namespace RelayServer.Endpoints;
 
@@ -118,7 +117,7 @@ public static class BoardEndpoints
             return Results.Ok();
         });
 
-        group.MapPost("/{boardId}/probe-target", async (string boardId, BoardRepository repo) =>
+        group.MapPost("/{boardId}/probe-target", async (string boardId, BoardRepository repo, RelayHub hub, CancellationToken cancellationToken) =>
         {
             var board = await repo.GetBoardAsync(boardId);
             if (board is null)
@@ -126,20 +125,21 @@ public static class BoardEndpoints
                 return Results.NotFound(new { error = "Board not found." });
             }
 
+            if (!board.Enabled)
+            {
+                return Results.Ok(new TargetProbeDto(board.BoardId, $"{board.TargetHost}:{board.TargetPort}", false, 0, "Board is disabled."));
+            }
+
+            var session = hub.GetSession(board.BoardId);
+            if (session is null)
+            {
+                return Results.Ok(new TargetProbeDto(board.BoardId, $"{board.TargetHost}:{board.TargetPort}", false, 0, "Board is offline; target can only be tested through the board tunnel."));
+            }
+
             var sw = Stopwatch.StartNew();
-            try
-            {
-                using var client = new TcpClient { NoDelay = true };
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-                await client.ConnectAsync(board.TargetHost, board.TargetPort, cts.Token);
-                sw.Stop();
-                return Results.Ok(new TargetProbeDto(board.BoardId, $"{board.TargetHost}:{board.TargetPort}", true, sw.ElapsedMilliseconds, null));
-            }
-            catch (Exception ex)
-            {
-                sw.Stop();
-                return Results.Ok(new TargetProbeDto(board.BoardId, $"{board.TargetHost}:{board.TargetPort}", false, sw.ElapsedMilliseconds, ex.Message));
-            }
+            var result = await session.ProbeTargetAsync(TimeSpan.FromMilliseconds(3800), cancellationToken);
+            sw.Stop();
+            return Results.Ok(new TargetProbeDto(board.BoardId, $"{board.TargetHost}:{board.TargetPort}", result.Success, sw.ElapsedMilliseconds, result.Error));
         });
 
         return app;

@@ -16,6 +16,7 @@ public sealed class BoardSession
     private readonly NetworkStream _boardStream;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly ConcurrentDictionary<uint, PublicConnection> _connections = new();
+    private readonly ConcurrentDictionary<uint, TaskCompletionSource<string?>> _probeWaiters = new();
     private readonly CancellationTokenSource _stopCts = new();
     private TcpListener? _publicListener;
     private uint _nextConnectionId;
@@ -86,8 +87,60 @@ public sealed class BoardSession
             await ClosePublicConnectionAsync(pair.Key);
         }
 
+        foreach (var pair in _probeWaiters)
+        {
+            if (_probeWaiters.TryRemove(pair.Key, out var waiter))
+            {
+                waiter.TrySetResult("session stopped");
+            }
+        }
+
         try { _boardClient.Close(); } catch { }
         _hub.Unregister(this, reason);
+    }
+
+    public async Task<(bool Success, string? Error)> ProbeTargetAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        if (_stopCts.IsCancellationRequested)
+        {
+            return (false, "board session is stopped");
+        }
+
+        var id = Interlocked.Increment(ref _nextConnectionId);
+        var waiter = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!_probeWaiters.TryAdd(id, waiter))
+        {
+            return (false, "probe connection id collision");
+        }
+
+        try
+        {
+            await RelayFrame.WriteJsonAsync(_boardStream, RelayFrameType.Open, id, new
+            {
+                host = _board.TargetHost,
+                port = _board.TargetPort
+            }, cancellationToken, _writeLock);
+
+            using var timeoutCts = new CancellationTokenSource(timeout);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+            try
+            {
+                var error = await waiter.Task.WaitAsync(linked.Token);
+                return string.IsNullOrWhiteSpace(error)
+                    ? (true, null)
+                    : (false, error);
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                return (true, null);
+            }
+        }
+        finally
+        {
+            _probeWaiters.TryRemove(id, out _);
+            await RelayFrame.WriteAsync(_boardStream, RelayFrameType.Close, id, ReadOnlyMemory<byte>.Empty, CancellationToken.None, _writeLock);
+        }
     }
 
     private async Task AcceptPublicClientsAsync(CancellationToken token)
@@ -170,6 +223,12 @@ public sealed class BoardSession
                     var message = frame.Payload.IsEmpty
                         ? "no detail"
                         : Encoding.UTF8.GetString(frame.Payload.Span);
+                    if (_probeWaiters.TryRemove(frame.ConnectionId, out var probeWaiter))
+                    {
+                        probeWaiter.TrySetResult(message);
+                        break;
+                    }
+
                     LastError = message;
                     _hub.AddEvent("error", $"Board {_board.BoardId} reported connection {frame.ConnectionId} error: {message}.");
                     await ClosePublicConnectionAsync(frame.ConnectionId);
