@@ -108,8 +108,8 @@
                   <small>心跳 {{ board.lastHeartbeat ? formatTime(board.lastHeartbeat) : '-' }}</small>
                 </span>
                 <span class="row-actions">
-                  <button class="icon toggle" :title="board.enabled ? '禁用板子' : '启用板子'" @click="toggleBoardEnabled(board)">
-                    {{ board.enabled ? '禁用' : '启用' }}
+                  <button class="icon toggle" :title="board.enabled ? '禁用板子' : '启用板子'" :disabled="isToggling(board)" @click="toggleBoardEnabled(board)">
+                    {{ toggleButtonText(board) }}
                   </button>
                   <button class="icon" title="编辑" @click="editBoard(board)">编辑</button>
                   <button class="icon" title="测试目标" @click="probeTarget(board)">测试</button>
@@ -131,7 +131,13 @@
               <div class="diagnostics">
                 <p><span>上行到板子</span><strong>{{ formatBytes(diagnostics?.bytesFromPublic || 0) }}</strong></p>
                 <p><span>板子返回</span><strong>{{ formatBytes(diagnostics?.bytesFromBoard || 0) }}</strong></p>
-                <p><span>最近测试</span><strong>{{ lastProbe || '暂无' }}</strong></p>
+                <p class="probe-row">
+                  <span>最近测试</span>
+                  <strong :class="['probe-result', lastProbe.tone]">
+                    <em v-if="lastProbe.boardId">{{ lastProbe.boardId }} · {{ lastProbe.target }}</em>
+                    <b>{{ lastProbe.detail }}</b>
+                  </strong>
+                </p>
               </div>
             </div>
 

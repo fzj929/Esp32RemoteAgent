@@ -8,7 +8,13 @@ createApp({
       boards: [],
       events: [],
       diagnostics: null,
-      lastProbe: '',
+      lastProbe: {
+        boardId: '',
+        target: '',
+        detail: '暂无',
+        tone: 'muted'
+      },
+      togglingBoards: [],
       error: '',
       loginError: '',
       passwordError: '',
@@ -185,8 +191,30 @@ createApp({
       await this.request(`/api/boards/${encodeURIComponent(board.boardId)}/disconnect`, { method: 'POST' });
       await this.loadAll();
     },
+    isToggling(board) {
+      return this.togglingBoards.includes(board.boardId);
+    },
+    toggleButtonText(board) {
+      if (this.isToggling(board)) {
+        return '处理中';
+      }
+      return board.enabled ? '禁用' : '启用';
+    },
+    setProbeStatus({ boardId = '', target = '', detail = '暂无', tone = 'muted' }) {
+      this.lastProbe = { boardId, target, detail, tone };
+    },
     async toggleBoardEnabled(board) {
       const nextEnabled = !board.enabled;
+      const previousEnabled = board.enabled;
+      this.togglingBoards.push(board.boardId);
+      board.enabled = nextEnabled;
+      this.setProbeStatus({
+        boardId: board.boardId,
+        target: `${board.targetHost}:${board.targetPort}`,
+        detail: nextEnabled ? '已启用' : '已禁用',
+        tone: nextEnabled ? 'ok' : 'warn'
+      });
+
       const response = await this.request(`/api/boards/${encodeURIComponent(board.boardId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -203,25 +231,45 @@ createApp({
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({ error: '切换状态失败' }));
-        this.lastProbe = body.error || '切换状态失败';
+        board.enabled = previousEnabled;
+        this.setProbeStatus({
+          boardId: board.boardId,
+          target: `${board.targetHost}:${board.targetPort}`,
+          detail: body.error || '切换状态失败',
+          tone: 'bad'
+        });
+        this.togglingBoards = this.togglingBoards.filter(x => x !== board.boardId);
         return;
       }
 
-      this.lastProbe = `${board.boardId} 已${nextEnabled ? '启用' : '禁用'}`;
       await this.loadAll();
+      this.togglingBoards = this.togglingBoards.filter(x => x !== board.boardId);
     },
     async probeTarget(board) {
-      this.lastProbe = '正在测试...';
+      this.setProbeStatus({
+        boardId: board.boardId,
+        target: `${board.targetHost}:${board.targetPort}`,
+        detail: '正在测试...',
+        tone: 'muted'
+      });
       const response = await this.request(`/api/boards/${encodeURIComponent(board.boardId)}/probe-target`, { method: 'POST' });
       if (!response.ok) {
-        this.lastProbe = '测试失败';
+        this.setProbeStatus({
+          boardId: board.boardId,
+          target: `${board.targetHost}:${board.targetPort}`,
+          detail: '测试失败',
+          tone: 'bad'
+        });
         return;
       }
 
       const result = await response.json();
-      this.lastProbe = result.success
-        ? `${result.boardId} ${result.target} 可连接，${result.elapsedMs} ms`
-        : `${result.boardId} ${result.target} 不可连接：${result.error}`;
+      this.setProbeStatus({
+        boardId: result.boardId,
+        target: result.target,
+        detail: result.success ? `可连接，${result.elapsedMs} ms` : `不可连接：${result.error}`,
+        tone: result.success ? 'ok' : 'bad'
+      });
     },
     async removeBoard(board) {
       if (!confirm(`确定删除板子 ${board.boardId}？`)) {

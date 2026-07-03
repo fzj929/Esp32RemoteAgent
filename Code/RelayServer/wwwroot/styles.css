@@ -399,6 +399,7 @@ h2 {
 .diagnostics p {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 12px;
   margin: 0;
   padding-bottom: 10px;
@@ -412,10 +413,57 @@ h2 {
 
 .diagnostics span {
   color: var(--muted);
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .diagnostics strong {
+  min-width: 0;
   text-align: right;
+}
+
+.probe-row {
+  min-height: 46px;
+}
+
+.probe-result {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  max-width: 230px;
+}
+
+.probe-result em,
+.probe-result b {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: normal;
+}
+
+.probe-result em {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.probe-result b {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.probe-result.ok b {
+  color: var(--good);
+}
+
+.probe-result.warn b {
+  color: var(--warning);
+}
+
+.probe-result.bad b {
+  color: #a23a20;
 }
 
 .events li {
