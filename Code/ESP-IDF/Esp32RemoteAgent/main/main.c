@@ -21,15 +21,15 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
-#include "led_strip.h"
 #include "lwip/esp_netif_net_stack.h"
 #include "lwip/inet.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/netdb.h"
 #include "lwip/tcp.h"
 #include "mbedtls/md.h"
-#include "nvs.h"
 #include "nvs_flash.h"
+#include "remote_config.h"
+#include "status_led.h"
 #include "tusb.h"
 #include "tinyusb.h"
 #include "tinyusb_net.h"
@@ -37,29 +37,7 @@
 static const char *TAG = "RemoteAgent";
 static const char *TAG_USB = "USB_NCM";
 
-// ===== Factory configuration =====
-static const char *DEFAULT_WIFI_SSID = CONFIG_REMOTE_AGENT_WIFI_SSID;
-static const char *DEFAULT_WIFI_PASSWORD = CONFIG_REMOTE_AGENT_WIFI_PASSWORD;
-static const char *DEFAULT_SERVER_HOST = CONFIG_REMOTE_AGENT_SERVER_HOST;
-static const uint16_t DEFAULT_SERVER_CONTROL_PORT = CONFIG_REMOTE_AGENT_SERVER_CONTROL_PORT;
-static const char *DEFAULT_BOARD_ID = CONFIG_REMOTE_AGENT_BOARD_ID;
-static const char *DEFAULT_BOARD_KEY = CONFIG_REMOTE_AGENT_BOARD_KEY;
-static const uint16_t DEFAULT_ASSIGNED_PUBLIC_PORT = CONFIG_REMOTE_AGENT_ASSIGNED_PUBLIC_PORT;
-static const char *DEFAULT_TERMINAL_RDP_HOST = CONFIG_REMOTE_AGENT_TERMINAL_RDP_HOST;
-static const uint16_t DEFAULT_TERMINAL_RDP_PORT = CONFIG_REMOTE_AGENT_TERMINAL_RDP_PORT;
 static const char *FIRMWARE_VERSION = "esp-idf-s3-0.2.0";
-
-typedef struct {
-    char wifi_ssid[33];
-    char wifi_password[65];
-    char server_host[64];
-    uint16_t server_control_port;
-    char board_id[32];
-    char board_key[96];
-    uint16_t assigned_public_port;
-    char terminal_rdp_host[64];
-    uint16_t terminal_rdp_port;
-} remote_config_t;
 
 // ===== Relay protocol =====
 static const uint8_t FRAME_REGISTER = 1;
@@ -96,10 +74,7 @@ static uint64_t s_bytes_from_server;
 static uint64_t s_bytes_from_terminal;
 static uint16_t s_runtime_assigned_public_port;
 static esp_netif_t *s_usb_netif;
-static led_strip_handle_t s_status_led;
-static bool s_status_led_ready;
 static bool s_relay_online;
-static int64_t s_data_flash_until_ms;
 
 #if CONFIG_TINYUSB_NET_MODE_NCM
 #define BOS_TOTAL_LEN (TUD_BOS_DESC_LEN + TUD_BOS_MICROSOFT_OS_DESC_LEN)
@@ -196,84 +171,6 @@ static int64_t now_ms(void)
     return esp_timer_get_time() / 1000;
 }
 
-static void config_set_defaults(remote_config_t *cfg)
-{
-    strlcpy(cfg->wifi_ssid, DEFAULT_WIFI_SSID, sizeof(cfg->wifi_ssid));
-    strlcpy(cfg->wifi_password, DEFAULT_WIFI_PASSWORD, sizeof(cfg->wifi_password));
-    strlcpy(cfg->server_host, DEFAULT_SERVER_HOST, sizeof(cfg->server_host));
-    cfg->server_control_port = DEFAULT_SERVER_CONTROL_PORT;
-    strlcpy(cfg->board_id, DEFAULT_BOARD_ID, sizeof(cfg->board_id));
-    strlcpy(cfg->board_key, DEFAULT_BOARD_KEY, sizeof(cfg->board_key));
-    cfg->assigned_public_port = DEFAULT_ASSIGNED_PUBLIC_PORT;
-    strlcpy(cfg->terminal_rdp_host, DEFAULT_TERMINAL_RDP_HOST, sizeof(cfg->terminal_rdp_host));
-    cfg->terminal_rdp_port = DEFAULT_TERMINAL_RDP_PORT;
-}
-
-static void nvs_get_string_or_keep(nvs_handle_t nvs, const char *key, char *value, size_t value_size)
-{
-    size_t required = value_size;
-    esp_err_t err = nvs_get_str(nvs, key, value, &required);
-    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
-        ESP_LOGW(TAG, "read config %s failed: %s", key, esp_err_to_name(err));
-    }
-}
-
-static void nvs_get_u16_or_keep(nvs_handle_t nvs, const char *key, uint16_t *value)
-{
-    uint16_t stored = 0;
-    esp_err_t err = nvs_get_u16(nvs, key, &stored);
-    if (err == ESP_OK) {
-        *value = stored;
-    } else if (err != ESP_ERR_NVS_NOT_FOUND) {
-        ESP_LOGW(TAG, "read config %s failed: %s", key, esp_err_to_name(err));
-    }
-}
-
-static esp_err_t config_save_defaults_if_missing(nvs_handle_t nvs, const remote_config_t *cfg)
-{
-    size_t required = 0;
-    if (nvs_get_str(nvs, "wifi_ssid", NULL, &required) == ESP_ERR_NVS_NOT_FOUND) {
-        ESP_RETURN_ON_ERROR(nvs_set_str(nvs, "wifi_ssid", cfg->wifi_ssid), TAG, "save wifi ssid failed");
-        ESP_RETURN_ON_ERROR(nvs_set_str(nvs, "wifi_pass", cfg->wifi_password), TAG, "save wifi password failed");
-        ESP_RETURN_ON_ERROR(nvs_set_str(nvs, "server", cfg->server_host), TAG, "save server failed");
-        ESP_RETURN_ON_ERROR(nvs_set_u16(nvs, "ctrl_port", cfg->server_control_port), TAG, "save control port failed");
-        ESP_RETURN_ON_ERROR(nvs_set_str(nvs, "board_id", cfg->board_id), TAG, "save board id failed");
-        ESP_RETURN_ON_ERROR(nvs_set_str(nvs, "board_key", cfg->board_key), TAG, "save board key failed");
-        ESP_RETURN_ON_ERROR(nvs_set_u16(nvs, "public_port", cfg->assigned_public_port), TAG, "save public port failed");
-        ESP_RETURN_ON_ERROR(nvs_set_str(nvs, "target_host", cfg->terminal_rdp_host), TAG, "save target host failed");
-        ESP_RETURN_ON_ERROR(nvs_set_u16(nvs, "target_port", cfg->terminal_rdp_port), TAG, "save target port failed");
-        ESP_RETURN_ON_ERROR(nvs_commit(nvs), TAG, "commit config failed");
-        ESP_LOGI(TAG, "factory defaults saved to NVS namespace remote_cfg");
-    }
-
-    return ESP_OK;
-}
-
-static esp_err_t config_load(void)
-{
-    config_set_defaults(&s_config);
-
-    nvs_handle_t nvs;
-    esp_err_t err = nvs_open("remote_cfg", NVS_READWRITE, &nvs);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "open remote_cfg failed, using compile defaults: %s", esp_err_to_name(err));
-        return ESP_OK;
-    }
-
-    ESP_RETURN_ON_ERROR(config_save_defaults_if_missing(nvs, &s_config), TAG, "save default config failed");
-    nvs_get_string_or_keep(nvs, "wifi_ssid", s_config.wifi_ssid, sizeof(s_config.wifi_ssid));
-    nvs_get_string_or_keep(nvs, "wifi_pass", s_config.wifi_password, sizeof(s_config.wifi_password));
-    nvs_get_string_or_keep(nvs, "server", s_config.server_host, sizeof(s_config.server_host));
-    nvs_get_u16_or_keep(nvs, "ctrl_port", &s_config.server_control_port);
-    nvs_get_string_or_keep(nvs, "board_id", s_config.board_id, sizeof(s_config.board_id));
-    nvs_get_string_or_keep(nvs, "board_key", s_config.board_key, sizeof(s_config.board_key));
-    nvs_get_u16_or_keep(nvs, "public_port", &s_config.assigned_public_port);
-    nvs_get_string_or_keep(nvs, "target_host", s_config.terminal_rdp_host, sizeof(s_config.terminal_rdp_host));
-    nvs_get_u16_or_keep(nvs, "target_port", &s_config.terminal_rdp_port);
-    nvs_close(nvs);
-    return ESP_OK;
-}
-
 static void bytes_to_hex(const uint8_t *bytes, size_t length, char *output, size_t output_size)
 {
     static const char hex[] = "0123456789abcdef";
@@ -302,84 +199,6 @@ static esp_err_t hmac_sha256_hex(const char *key, const char *payload, char *out
                              digest);
     ESP_RETURN_ON_FALSE(rc == 0, ESP_FAIL, TAG, "hmac failed");
     bytes_to_hex(digest, sizeof(digest), output, output_size);
-    return ESP_OK;
-}
-
-static uint8_t led_scale(uint8_t value)
-{
-#if CONFIG_REMOTE_AGENT_STATUS_LED_ENABLED
-    return (uint8_t)((uint16_t)value * CONFIG_REMOTE_AGENT_STATUS_LED_BRIGHTNESS / 255);
-#else
-    return 0;
-#endif
-}
-
-static void status_led_apply(uint8_t red, uint8_t green, uint8_t blue)
-{
-#if CONFIG_REMOTE_AGENT_STATUS_LED_ENABLED
-    if (!s_status_led_ready) {
-        return;
-    }
-
-    led_strip_set_pixel(s_status_led, 0, led_scale(red), led_scale(green), led_scale(blue));
-    led_strip_refresh(s_status_led);
-#else
-    (void)red;
-    (void)green;
-    (void)blue;
-#endif
-}
-
-static void status_led_set_disconnected(void)
-{
-    status_led_apply(255, 0, 0);
-}
-
-static void status_led_set_connected(void)
-{
-    status_led_apply(0, 255, 0);
-}
-
-static void status_led_note_data(void)
-{
-    s_data_flash_until_ms = now_ms() + 80;
-    status_led_apply(0, 0, 255);
-}
-
-static void status_led_tick(void)
-{
-    if (s_data_flash_until_ms > 0 && now_ms() >= s_data_flash_until_ms) {
-        s_data_flash_until_ms = 0;
-        if (s_relay_online) {
-            status_led_set_connected();
-        } else {
-            status_led_set_disconnected();
-        }
-    }
-}
-
-static esp_err_t status_led_init(void)
-{
-#if CONFIG_REMOTE_AGENT_STATUS_LED_ENABLED
-    led_strip_config_t strip_config = {
-        .strip_gpio_num = CONFIG_REMOTE_AGENT_STATUS_LED_GPIO,
-        .max_leds = 1,
-    };
-    led_strip_rmt_config_t rmt_config = {
-        .resolution_hz = 10 * 1000 * 1000,
-        .flags.with_dma = false,
-    };
-
-    esp_err_t err = led_strip_new_rmt_device(&strip_config, &rmt_config, &s_status_led);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "status LED init failed: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    s_status_led_ready = true;
-    led_strip_clear(s_status_led);
-    status_led_set_disconnected();
-#endif
     return ESP_OK;
 }
 
@@ -929,7 +748,7 @@ static void relay_task(void *arg)
                 break;
             }
             send_heartbeat_if_needed(relay_fd);
-            status_led_tick();
+            status_led_tick(s_relay_online);
             vTaskDelay(pdMS_TO_TICKS(1));
         }
 
@@ -1084,7 +903,7 @@ void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
-    ESP_ERROR_CHECK(config_load());
+    ESP_ERROR_CHECK(remote_config_load(&s_config));
     s_runtime_assigned_public_port = 0;
     ESP_LOGI(TAG, "boardId=%s assignedPort=server-assigned server=%s:%u",
              s_config.board_id, s_config.server_host, s_config.server_control_port);
