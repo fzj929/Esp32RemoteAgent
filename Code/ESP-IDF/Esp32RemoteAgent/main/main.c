@@ -26,8 +26,8 @@
 #include "lwip/ip4_addr.h"
 #include "lwip/netdb.h"
 #include "lwip/tcp.h"
-#include "mbedtls/md.h"
 #include "nvs_flash.h"
+#include "relay_protocol.h"
 #include "remote_config.h"
 #include "status_led.h"
 #include "tusb.h"
@@ -39,18 +39,7 @@ static const char *TAG_USB = "USB_NCM";
 
 static const char *FIRMWARE_VERSION = "esp-idf-s3-0.2.0";
 
-// ===== Relay protocol =====
-static const uint8_t FRAME_REGISTER = 1;
-static const uint8_t FRAME_REGISTER_ACK = 2;
-static const uint8_t FRAME_HEARTBEAT = 3;
-static const uint8_t FRAME_OPEN = 4;
-static const uint8_t FRAME_DATA = 5;
-static const uint8_t FRAME_CLOSE = 6;
-static const uint8_t FRAME_ERROR = 7;
-
 enum {
-    FRAME_HEADER_LEN = 9,
-    MAX_FRAME_PAYLOAD = 8192,
     HEARTBEAT_INTERVAL_MS = 15000,
     RECONNECT_DELAY_MS = 3000,
     MAX_TUNNELS = 4,
@@ -153,53 +142,9 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
 }
 #endif
 
-static void write_u32_be(uint8_t *dst, uint32_t value)
-{
-    dst[0] = (value >> 24) & 0xff;
-    dst[1] = (value >> 16) & 0xff;
-    dst[2] = (value >> 8) & 0xff;
-    dst[3] = value & 0xff;
-}
-
-static uint32_t read_u32_be(const uint8_t *src)
-{
-    return ((uint32_t)src[0] << 24) | ((uint32_t)src[1] << 16) | ((uint32_t)src[2] << 8) | src[3];
-}
-
 static int64_t now_ms(void)
 {
     return esp_timer_get_time() / 1000;
-}
-
-static void bytes_to_hex(const uint8_t *bytes, size_t length, char *output, size_t output_size)
-{
-    static const char hex[] = "0123456789abcdef";
-    if (output_size < length * 2 + 1) {
-        if (output_size > 0) {
-            output[0] = '\0';
-        }
-        return;
-    }
-
-    for (size_t i = 0; i < length; i++) {
-        output[i * 2] = hex[(bytes[i] >> 4) & 0x0f];
-        output[i * 2 + 1] = hex[bytes[i] & 0x0f];
-    }
-    output[length * 2] = '\0';
-}
-
-static esp_err_t hmac_sha256_hex(const char *key, const char *payload, char *output, size_t output_size)
-{
-    uint8_t digest[32];
-    const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-    ESP_RETURN_ON_FALSE(info != NULL, ESP_FAIL, TAG, "sha256 info unavailable");
-    int rc = mbedtls_md_hmac(info,
-                             (const unsigned char *)key, strlen(key),
-                             (const unsigned char *)payload, strlen(payload),
-                             digest);
-    ESP_RETURN_ON_FALSE(rc == 0, ESP_FAIL, TAG, "hmac failed");
-    bytes_to_hex(digest, sizeof(digest), output, output_size);
-    return ESP_OK;
 }
 
 static void close_fd(int *fd)
@@ -211,45 +156,7 @@ static void close_fd(int *fd)
     }
 }
 
-static esp_err_t read_exact(int fd, uint8_t *buffer, size_t length, int timeout_ms)
-{
-    size_t offset = 0;
-    int64_t deadline = now_ms() + timeout_ms;
-
-    while (offset < length) {
-        int remaining = (int)(deadline - now_ms());
-        if (remaining <= 0) {
-            return ESP_ERR_TIMEOUT;
-        }
-
-        fd_set readfds;
-        FD_ZERO(&readfds);
-        FD_SET(fd, &readfds);
-
-        struct timeval tv = {
-            .tv_sec = remaining / 1000,
-            .tv_usec = (remaining % 1000) * 1000,
-        };
-
-        int selected = select(fd + 1, &readfds, NULL, NULL, &tv);
-        if (selected < 0) {
-            return ESP_FAIL;
-        }
-        if (selected == 0) {
-            return ESP_ERR_TIMEOUT;
-        }
-
-        int received = recv(fd, buffer + offset, length - offset, 0);
-        if (received <= 0) {
-            return ESP_FAIL;
-        }
-        offset += received;
-    }
-
-    return ESP_OK;
-}
-
-static esp_err_t write_all(int fd, const uint8_t *buffer, size_t length)
+static esp_err_t socket_write_all(int fd, const uint8_t *buffer, size_t length)
 {
     size_t offset = 0;
     while (offset < length) {
@@ -260,87 +167,6 @@ static esp_err_t write_all(int fd, const uint8_t *buffer, size_t length)
         offset += sent;
     }
     return ESP_OK;
-}
-
-static esp_err_t send_frame(int relay_fd, uint8_t type, uint32_t connection_id, const uint8_t *payload, uint32_t length)
-{
-    uint8_t header[FRAME_HEADER_LEN];
-    header[0] = type;
-    write_u32_be(header + 1, connection_id);
-    write_u32_be(header + 5, length);
-
-    ESP_RETURN_ON_ERROR(write_all(relay_fd, header, sizeof(header)), TAG, "send frame header failed");
-    if (length > 0) {
-        ESP_RETURN_ON_ERROR(write_all(relay_fd, payload, length), TAG, "send frame payload failed");
-    }
-    return ESP_OK;
-}
-
-static esp_err_t send_text_frame(int relay_fd, uint8_t type, uint32_t connection_id, const char *text)
-{
-    return send_frame(relay_fd, type, connection_id, (const uint8_t *)text, strlen(text));
-}
-
-static bool extract_json_string(const char *json, const char *key, char *output, size_t output_size)
-{
-    if (!json || !key || !output || output_size == 0) {
-        return false;
-    }
-
-    char pattern[48];
-    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
-    const char *key_pos = strstr(json, pattern);
-    if (!key_pos) {
-        return false;
-    }
-
-    const char *colon = strchr(key_pos + strlen(pattern), ':');
-    if (!colon) {
-        return false;
-    }
-
-    const char *start = strchr(colon, '"');
-    if (!start) {
-        return false;
-    }
-    start++;
-
-    const char *end = strchr(start, '"');
-    if (!end) {
-        return false;
-    }
-
-    size_t len = (size_t)(end - start);
-    if (len >= output_size) {
-        len = output_size - 1;
-    }
-    memcpy(output, start, len);
-    output[len] = '\0';
-    return true;
-}
-
-static bool extract_json_u16(const char *json, const char *key, uint16_t *output)
-{
-    char pattern[48];
-    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
-    const char *key_pos = strstr(json, pattern);
-    if (!key_pos) {
-        return false;
-    }
-
-    const char *colon = strchr(key_pos + strlen(pattern), ':');
-    if (!colon) {
-        return false;
-    }
-
-    char *end = NULL;
-    unsigned long value = strtoul(colon + 1, &end, 10);
-    if (end == colon + 1 || value > 65535) {
-        return false;
-    }
-
-    *output = (uint16_t)value;
-    return true;
 }
 
 static tunnel_connection_t *find_tunnel(uint32_t id)
@@ -456,7 +282,7 @@ static esp_err_t register_board(int relay_fd)
              timestamp_ms);
 
     char signature[65];
-    ESP_RETURN_ON_ERROR(hmac_sha256_hex(s_config.board_key, auth_payload, signature, sizeof(signature)), TAG, "auth signature failed");
+    ESP_RETURN_ON_ERROR(relay_hmac_sha256_hex(s_config.board_key, auth_payload, signature, sizeof(signature)), TAG, "auth signature failed");
 
     char json[640];
     snprintf(json, sizeof(json),
@@ -474,22 +300,22 @@ static esp_err_t register_board(int relay_fd)
 
     ESP_LOGI(TAG, "register boardId=%s assignedPort=request-server target=%s:%u",
              s_config.board_id, s_config.terminal_rdp_host, s_config.terminal_rdp_port);
-    return send_text_frame(relay_fd, FRAME_REGISTER, 0, json);
+    return relay_send_text_frame(relay_fd, FRAME_REGISTER, 0, json);
 }
 
 static esp_err_t wait_register_ack(int relay_fd)
 {
     uint8_t header[FRAME_HEADER_LEN];
-    ESP_RETURN_ON_ERROR(read_exact(relay_fd, header, sizeof(header), 5000), TAG, "registration ack timeout");
+    ESP_RETURN_ON_ERROR(relay_read_exact(relay_fd, header, sizeof(header), 5000), TAG, "registration ack timeout");
 
     uint8_t type = header[0];
-    uint32_t len = read_u32_be(header + 5);
+    uint32_t len = relay_read_u32_be(header + 5);
     if (len > MAX_FRAME_PAYLOAD) {
         return ESP_ERR_INVALID_SIZE;
     }
 
     if (len > 0) {
-        ESP_RETURN_ON_ERROR(read_exact(relay_fd, s_rx_buffer, len, 5000), TAG, "registration ack payload timeout");
+        ESP_RETURN_ON_ERROR(relay_read_exact(relay_fd, s_rx_buffer, len, 5000), TAG, "registration ack payload timeout");
     }
 
     if (type != FRAME_REGISTER_ACK) {
@@ -504,17 +330,17 @@ static esp_err_t wait_register_ack(int relay_fd)
         ack_json[ack_len] = '\0';
 
         uint16_t assigned_port = 0;
-        if (extract_json_u16(ack_json, "assignedPort", &assigned_port) && assigned_port > 0) {
+        if (relay_extract_json_u16(ack_json, "assignedPort", &assigned_port) && assigned_port > 0) {
             s_runtime_assigned_public_port = assigned_port;
         }
 
         char target_host[sizeof(s_config.terminal_rdp_host)];
-        if (extract_json_string(ack_json, "targetHost", target_host, sizeof(target_host))) {
+        if (relay_extract_json_string(ack_json, "targetHost", target_host, sizeof(target_host))) {
             strlcpy(s_config.terminal_rdp_host, target_host, sizeof(s_config.terminal_rdp_host));
         }
 
         uint16_t target_port = 0;
-        if (extract_json_u16(ack_json, "targetPort", &target_port) && target_port > 0) {
+        if (relay_extract_json_u16(ack_json, "targetPort", &target_port) && target_port > 0) {
             s_config.terminal_rdp_port = target_port;
         }
     }
@@ -535,13 +361,13 @@ static void handle_open(int relay_fd, uint32_t connection_id, const uint8_t *pay
     char host[64];
     strlcpy(host, s_config.terminal_rdp_host, sizeof(host));
     uint16_t port = s_config.terminal_rdp_port;
-    extract_json_string(json, "host", host, sizeof(host));
-    extract_json_u16(json, "port", &port);
+    relay_extract_json_string(json, "host", host, sizeof(host));
+    relay_extract_json_u16(json, "port", &port);
 
     tunnel_connection_t *tunnel = allocate_tunnel(connection_id);
     if (!tunnel) {
-        send_text_frame(relay_fd, FRAME_ERROR, connection_id, "no tunnel slot");
-        send_frame(relay_fd, FRAME_CLOSE, connection_id, NULL, 0);
+        relay_send_text_frame(relay_fd, FRAME_ERROR, connection_id, "no tunnel slot");
+        relay_send_frame(relay_fd, FRAME_CLOSE, connection_id, NULL, 0);
         return;
     }
 
@@ -550,8 +376,8 @@ static void handle_open(int relay_fd, uint32_t connection_id, const uint8_t *pay
     tunnel->fd = connect_tcp_host(host, port, 3000);
     if (tunnel->fd < 0) {
         ESP_LOGE(TAG, "terminal connection failed conn=%" PRIu32 " target=%s:%u", connection_id, host, port);
-        send_text_frame(relay_fd, FRAME_ERROR, connection_id, "terminal connection failed");
-        send_frame(relay_fd, FRAME_CLOSE, connection_id, NULL, 0);
+        relay_send_text_frame(relay_fd, FRAME_ERROR, connection_id, "terminal connection failed");
+        relay_send_frame(relay_fd, FRAME_CLOSE, connection_id, NULL, 0);
         close_tunnel(connection_id);
         return;
     }
@@ -564,14 +390,14 @@ static void handle_data(int relay_fd, uint32_t connection_id, const uint8_t *pay
 {
     tunnel_connection_t *tunnel = find_tunnel(connection_id);
     if (!tunnel || tunnel->fd < 0) {
-        send_frame(relay_fd, FRAME_CLOSE, connection_id, NULL, 0);
+        relay_send_frame(relay_fd, FRAME_CLOSE, connection_id, NULL, 0);
         close_tunnel(connection_id);
         return;
     }
 
-    if (write_all(tunnel->fd, payload, length) != ESP_OK) {
-        send_text_frame(relay_fd, FRAME_ERROR, connection_id, "terminal write failed");
-        send_frame(relay_fd, FRAME_CLOSE, connection_id, NULL, 0);
+    if (socket_write_all(tunnel->fd, payload, length) != ESP_OK) {
+        relay_send_text_frame(relay_fd, FRAME_ERROR, connection_id, "terminal write failed");
+        relay_send_frame(relay_fd, FRAME_CLOSE, connection_id, NULL, 0);
         close_tunnel(connection_id);
         return;
     }
@@ -596,19 +422,19 @@ static esp_err_t process_relay_frame(int relay_fd)
     }
 
     uint8_t header[FRAME_HEADER_LEN];
-    esp_err_t err = read_exact(relay_fd, header, sizeof(header), 5000);
+    esp_err_t err = relay_read_exact(relay_fd, header, sizeof(header), 5000);
     ESP_RETURN_ON_ERROR(err, TAG, "read relay frame header failed");
 
     uint8_t type = header[0];
-    uint32_t connection_id = read_u32_be(header + 1);
-    uint32_t length = read_u32_be(header + 5);
+    uint32_t connection_id = relay_read_u32_be(header + 1);
+    uint32_t length = relay_read_u32_be(header + 5);
     if (length > MAX_FRAME_PAYLOAD) {
         ESP_LOGE(TAG, "relay payload too large type=%u conn=%" PRIu32 " len=%" PRIu32, type, connection_id, length);
         return ESP_FAIL;
     }
 
     if (length > 0) {
-        ESP_RETURN_ON_ERROR(read_exact(relay_fd, s_rx_buffer, length, 5000), TAG, "read relay payload failed");
+        ESP_RETURN_ON_ERROR(relay_read_exact(relay_fd, s_rx_buffer, length, 5000), TAG, "read relay payload failed");
     }
 
     switch (type) {
@@ -662,12 +488,12 @@ static esp_err_t pump_terminal_traffic(int relay_fd)
 
         int received = recv(tunnel->fd, s_pipe_buffer, sizeof(s_pipe_buffer), 0);
         if (received <= 0) {
-            send_frame(relay_fd, FRAME_CLOSE, tunnel->id, NULL, 0);
+            relay_send_frame(relay_fd, FRAME_CLOSE, tunnel->id, NULL, 0);
             close_tunnel(tunnel->id);
             continue;
         }
 
-        if (send_frame(relay_fd, FRAME_DATA, tunnel->id, s_pipe_buffer, received) != ESP_OK) {
+        if (relay_send_frame(relay_fd, FRAME_DATA, tunnel->id, s_pipe_buffer, received) != ESP_OK) {
             return ESP_FAIL;
         }
         s_bytes_from_terminal += received;
@@ -711,7 +537,7 @@ static void send_heartbeat_if_needed(int relay_fd)
              s_bytes_from_terminal,
              FIRMWARE_VERSION,
              s_runtime_assigned_public_port);
-    if (send_text_frame(relay_fd, FRAME_HEARTBEAT, 0, json) == ESP_OK) {
+    if (relay_send_text_frame(relay_fd, FRAME_HEARTBEAT, 0, json) == ESP_OK) {
         ESP_LOGI(TAG, "heartbeat sent freeHeap=%lu", (unsigned long)esp_get_free_heap_size());
     }
     s_last_heartbeat_ms = now_ms();
