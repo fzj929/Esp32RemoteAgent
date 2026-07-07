@@ -7,8 +7,10 @@ public sealed record BoardDto(
     string Name,
     int AssignedPort,
     bool Enabled,
+    string? OwnerUsername,
     string TargetHost,
     int TargetPort,
+    IReadOnlyList<BoardServiceDto> Services,
     DateTimeOffset UpdatedAt,
     bool Online,
     int ActiveConnections,
@@ -27,8 +29,10 @@ public sealed record BoardDto(
             board.Name,
             board.AssignedPort,
             board.Enabled,
+            board.OwnerUsername,
             board.TargetHost,
             board.TargetPort,
+            board.Services.Select(BoardServiceDto.From).ToList(),
             board.UpdatedAt,
             session is not null,
             session?.ActiveConnectionCount ?? 0,
@@ -40,4 +44,17 @@ public sealed record BoardDto(
             session?.BytesFromBoard ?? 0,
             session?.LastError,
             session?.Telemetry);
+}
+
+public sealed record BoardServiceDto(
+    string Name,
+    int PublicPort,
+    string TargetHost,
+    int TargetPort,
+    bool Enabled)
+{
+    public string Target => $"{TargetHost}:{TargetPort}";
+
+    public static BoardServiceDto From(BoardServiceRecord service) =>
+        new(service.Name, service.PublicPort, service.TargetHost, service.TargetPort, service.Enabled);
 }

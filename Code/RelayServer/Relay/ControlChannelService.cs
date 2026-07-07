@@ -91,7 +91,15 @@ public sealed class ControlChannelService(
                 ok = true,
                 assignedPort = board.AssignedPort,
                 targetHost = board.TargetHost,
-                targetPort = board.TargetPort
+                targetPort = board.TargetPort,
+                services = board.Services.Select(service => new
+                {
+                    name = service.Name,
+                    publicPort = service.PublicPort,
+                    targetHost = service.TargetHost,
+                    targetPort = service.TargetPort,
+                    enabled = service.Enabled
+                })
             }, stoppingToken);
             await session.RunAsync(stoppingToken);
         }

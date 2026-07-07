@@ -6,8 +6,17 @@ public sealed record BoardEditRequest(
     string AuthKey,
     int AssignedPort,
     bool Enabled,
+    string? OwnerUsername,
     string TargetHost,
-    int TargetPort);
+    int TargetPort,
+    IReadOnlyList<BoardServiceEditRequest>? Services);
+
+public sealed record BoardServiceEditRequest(
+    string Name,
+    int PublicPort,
+    string TargetHost,
+    int TargetPort,
+    bool Enabled);
 
 public sealed record BoardRegisterRequest(
     string BoardId,

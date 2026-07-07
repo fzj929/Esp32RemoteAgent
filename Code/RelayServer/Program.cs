@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
 using RelayServer.Data;
 using RelayServer.Endpoints;
 using RelayServer.Options;
@@ -13,7 +14,20 @@ builder.Logging.AddConsole();
 
 builder.Services.Configure<RelayOptions>(builder.Configuration.GetSection("Relay"));
 builder.Services.Configure<AdminOptions>(builder.Configuration.GetSection("Admin"));
+builder.Services.Configure<DatabaseOptions>(builder.Configuration.GetSection("Database"));
 builder.Services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RelayOptions>>().Value);
+
+builder.Services.AddDbContextFactory<RelayDbContext>((sp, options) =>
+{
+    var database = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<DatabaseOptions>>().Value;
+    if (string.Equals(database.Provider, "MySql", StringComparison.OrdinalIgnoreCase))
+    {
+        options.UseMySql(database.ConnectionString, ServerVersion.Parse(database.ServerVersion));
+        return;
+    }
+
+    options.UseSqlite(database.ConnectionString);
+});
 
 builder.Services.AddSingleton<BoardRepository>();
 builder.Services.AddSingleton<AuthRepository>();

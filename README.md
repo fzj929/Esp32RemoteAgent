@@ -44,6 +44,9 @@ TCP 3389
 
 ## 主要功能
 
+- 通用 TCP 服务转发：同一块板子可配置多条服务规则，例如 `6500 -> 192.168.77.2:3389`、`6501 -> 192.168.77.2:80`、`6502 -> 192.168.77.2:443`。
+- HTTP、HTTPS、SSH、Modbus TCP、自定义 TCP 服务都可以通过同一套隧道转发；HTTPS 只做 TCP 透传，不在板子或中转服务器上解密 TLS。
+- 管理后台的“TCP 服务”区域用于维护每条服务的公网端口、终端 IP、终端端口和启用状态。保存后，在线板子会重新注册并加载新的服务规则。
 - 固件配置固定 WiFi 账号和密码。
 - 板子使用 `boardId` 和 `boardKey` 注册到中转服务器。
 - 公网远程桌面端口由中转服务器后台配置，并通过 TCP `6555` 控制通道下发给板子。
@@ -71,6 +74,8 @@ TCP 3389
 - Git for Windows
 - PowerShell 5.1 或 PowerShell 7
 - .NET SDK 8.x，用于中转服务器
+- EF Core 8，用于中转服务器数据访问
+- 默认数据库为 SQLite；生产环境可切换到 MySQL 8.x
 - ESP-IDF 5.3.x，用于 ESP32-S3 固件
 - ESP-IDF 安装器自带的 Python 环境
 - ESP-IDF 工具安装目录：`C:\Espressif`
@@ -181,6 +186,27 @@ dotnet restore
 dotnet run --project .\RelayServer.csproj
 ```
 
+中转服务器数据库使用 EF Core。默认配置使用 SQLite：
+
+```json
+"Database": {
+  "Provider": "Sqlite",
+  "ConnectionString": "Data Source=relay.db"
+}
+```
+
+切换到 MySQL 时修改 `Code\RelayServer\appsettings.json` 或发布目录下的 `appsettings.Production.json`：
+
+```json
+"Database": {
+  "Provider": "MySql",
+  "ConnectionString": "Server=127.0.0.1;Port=3306;Database=esp32_relay;User=relay;Password=YOUR_PASSWORD;",
+  "ServerVersion": "8.0.36"
+}
+```
+
+当前后台数据库已重构为 EF Core 模型，不再兼容早期手写 SQLite 表结构。升级前请备份旧 `relay.db`，新版本建议重建数据库。
+
 发布并以 HTTPS 启动中转服务器：
 
 ```powershell
@@ -198,9 +224,9 @@ cd Code\RelayServer
 
 ## 当前限制
 
-- 当前已实现 RDP TCP 转发。RDP UDP 转发后续可以增加，用于进一步改善远程桌面体验。
+- 当前已实现通用 TCP 转发，可用于 RDP、HTTP、HTTPS、SSH、Modbus TCP 和自定义 TCP 服务。UDP 转发暂未支持，RDP UDP 加速、QUIC/HTTP3、DNS UDP 等场景后续需要单独增加 UDP 隧道。
 - USB 虚拟网卡兼容性取决于终端 Windows 系统的 USB 网络驱动支持。当前实现为 NCM，部分 Windows 镜像可能需要 RNDIS。
-- 中转服务器默认使用 SQLite，适合轻量部署；大规模设备管理时可以扩展为 PostgreSQL 或 SQL Server。
+- 中转服务器使用 EF Core；默认 SQLite 适合轻量部署，生产环境可切换为 MySQL。
 
 ## 更多文档
 

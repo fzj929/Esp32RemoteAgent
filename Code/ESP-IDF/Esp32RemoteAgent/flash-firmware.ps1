@@ -13,6 +13,12 @@ param(
     [int]$AssignedPublicPort = 6500,
     [string]$TerminalHost = "192.168.77.2",
     [int]$TerminalPort = 3389,
+    [ValidateRange(4, 32)]
+    [int]$MaxTunnels = 16,
+    [ValidateRange(300, 5000)]
+    [int]$TerminalConnectTimeoutMs = 2500,
+    [ValidateRange(1024, 16384)]
+    [int]$PendingTxBuffer = 8192,
     [int]$ControlPort = 6555,
     [string]$IdfRoot = "C:\Espressif\frameworks\esp-idf-v5.3.1-2",
     [string]$IdfToolsPath = "C:\Espressif",
@@ -125,6 +131,9 @@ $defaults = Set-KconfigValue -Content $defaults -Name "CONFIG_REMOTE_AGENT_BOARD
 $defaults = Set-KconfigInt -Content $defaults -Name "CONFIG_REMOTE_AGENT_ASSIGNED_PUBLIC_PORT" -Value $AssignedPublicPort
 $defaults = Set-KconfigValue -Content $defaults -Name "CONFIG_REMOTE_AGENT_TERMINAL_RDP_HOST" -Value $TerminalHost
 $defaults = Set-KconfigInt -Content $defaults -Name "CONFIG_REMOTE_AGENT_TERMINAL_RDP_PORT" -Value $TerminalPort
+$defaults = Set-KconfigInt -Content $defaults -Name "CONFIG_REMOTE_AGENT_MAX_TUNNELS" -Value $MaxTunnels
+$defaults = Set-KconfigInt -Content $defaults -Name "CONFIG_REMOTE_AGENT_TERMINAL_CONNECT_TIMEOUT_MS" -Value $TerminalConnectTimeoutMs
+$defaults = Set-KconfigInt -Content $defaults -Name "CONFIG_REMOTE_AGENT_PENDING_TX_BUFFER" -Value $PendingTxBuffer
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($defaultsPath, $defaults, $utf8NoBom)
@@ -152,6 +161,9 @@ Write-Host "[firmware] Temp build path: $TempProjectPath"
 Write-Host "[firmware] Port: $Port"
 Write-Host "[firmware] Server: $ServerHost`:$ControlPort"
 Write-Host "[firmware] Board: $BoardId public port $AssignedPublicPort"
+Write-Host "[firmware] Max tunnels: $MaxTunnels"
+Write-Host "[firmware] Terminal connect timeout: $TerminalConnectTimeoutMs ms"
+Write-Host "[firmware] Pending TX buffer: $PendingTxBuffer bytes"
 Write-Host "[firmware] WiFi SSID: $WifiSsid"
 Write-Host "[firmware] Mode: $(if ($BuildOnly) { 'build only' } else { 'build and flash' })"
 Write-Host "[firmware] WiFi password is not printed."

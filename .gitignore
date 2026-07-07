@@ -4,6 +4,8 @@
 **/build/
 **/build-*/
 **/publish/
+**/node_modules/
+**/.npm-cache/
 **/.vs/
 **/.vscode/
 **/.idea/

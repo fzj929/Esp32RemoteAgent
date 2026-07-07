@@ -6,6 +6,8 @@ public sealed record BoardRecord(
     string AuthKey,
     int AssignedPort,
     bool Enabled,
+    string? OwnerUsername,
     string TargetHost,
     int TargetPort,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    IReadOnlyList<BoardServiceRecord> Services);

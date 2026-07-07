@@ -1,39 +1,23 @@
-using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using RelayServer.Data.Entities;
+using RelayServer.Models;
 using RelayServer.Options;
 using RelayServer.Security;
 
 namespace RelayServer.Data;
 
 public sealed class AuthRepository(
-    IOptions<RelayOptions> options,
+    IDbContextFactory<RelayDbContext> dbFactory,
     IOptions<AdminOptions> adminOptions,
     ILogger<AuthRepository> logger)
 {
-    private readonly string _connectionString = new SqliteConnectionStringBuilder
-    {
-        DataSource = Path.GetFullPath(options.Value.DatabasePath)
-    }.ToString();
-
     public async Task InitializeAsync()
     {
-        await using var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync();
+        await using var db = await dbFactory.CreateDbContextAsync();
+        await db.Database.EnsureCreatedAsync();
 
-        var command = connection.CreateCommand();
-        command.CommandText = """
-            CREATE TABLE IF NOT EXISTS admins (
-                username TEXT PRIMARY KEY,
-                password_hash TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            """;
-        await command.ExecuteNonQueryAsync();
-
-        var exists = connection.CreateCommand();
-        exists.CommandText = "SELECT COUNT(*) FROM admins;";
-        var count = (long)(await exists.ExecuteScalarAsync() ?? 0L);
-        if (count == 0)
+        if (!await db.Users.AnyAsync())
         {
             var username = string.IsNullOrWhiteSpace(adminOptions.Value.BootstrapUsername)
                 ? "admin"
@@ -44,49 +28,100 @@ public sealed class AuthRepository(
                 throw new InvalidOperationException("Admin bootstrap password must be at least 8 characters.");
             }
 
-            await SetPasswordAsync(username, password);
+            await CreateOrUpdateUserAsync(username, password, UserRoles.Administrator);
             logger.LogWarning("Initial admin created. Username: {Username}. Change the bootstrap password immediately.", username);
         }
     }
 
-    public async Task<bool> ValidateAsync(string username, string password)
+    public async Task<UserRecord?> ValidateUserAsync(string username, string password)
     {
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrEmpty(password))
         {
-            return false;
+            return null;
         }
 
-        var hash = await GetPasswordHashAsync(username.Trim());
-        return hash is not null && PasswordHasher.Verify(password, hash);
+        var user = await GetUserAsync(username.Trim());
+        return user is not null && PasswordHasher.Verify(password, user.PasswordHash)
+            ? user
+            : null;
+    }
+
+    public async Task<bool> ValidateAsync(string username, string password) =>
+        await ValidateUserAsync(username, password) is not null;
+
+    public async Task<IReadOnlyList<UserRecord>> GetUsersAsync()
+    {
+        await using var db = await dbFactory.CreateDbContextAsync();
+        return await db.Users
+            .AsNoTracking()
+            .OrderBy(x => x.Role)
+            .ThenBy(x => x.Username)
+            .Select(x => ToRecord(x))
+            .ToListAsync();
+    }
+
+    public async Task<UserRecord?> GetUserAsync(string username)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var normalized = username.Trim();
+        var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Username == normalized);
+        return user is null ? null : ToRecord(user);
+    }
+
+    public async Task CreateOrUpdateUserAsync(string username, string password, string role)
+    {
+        var normalizedRole = NormalizeRole(role);
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var normalizedUsername = username.Trim();
+        var user = await db.Users.FirstOrDefaultAsync(x => x.Username == normalizedUsername);
+        if (user is null)
+        {
+            user = new UserEntity { Username = normalizedUsername };
+            db.Users.Add(user);
+        }
+
+        user.PasswordHash = PasswordHasher.Hash(password);
+        user.Role = normalizedRole;
+        user.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task UpdateUserAsync(string username, string role)
+    {
+        var normalizedRole = NormalizeRole(role);
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var normalizedUsername = username.Trim();
+        var user = await db.Users.FirstOrDefaultAsync(x => x.Username == normalizedUsername);
+        if (user is null)
+        {
+            return;
+        }
+
+        user.Role = normalizedRole;
+        user.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
     }
 
     public async Task SetPasswordAsync(string username, string password)
     {
-        await using var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync();
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var normalizedUsername = username.Trim();
+        var user = await db.Users.FirstOrDefaultAsync(x => x.Username == normalizedUsername);
+        if (user is null)
+        {
+            return;
+        }
 
-        var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO admins (username, password_hash, updated_at)
-            VALUES ($username, $passwordHash, $updatedAt)
-            ON CONFLICT(username) DO UPDATE SET
-                password_hash = excluded.password_hash,
-                updated_at = excluded.updated_at;
-            """;
-        command.Parameters.AddWithValue("$username", username.Trim());
-        command.Parameters.AddWithValue("$passwordHash", PasswordHasher.Hash(password));
-        command.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToString("O"));
-        await command.ExecuteNonQueryAsync();
+        user.PasswordHash = PasswordHasher.Hash(password);
+        user.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
     }
 
-    private async Task<string?> GetPasswordHashAsync(string username)
-    {
-        await using var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync();
+    public static string NormalizeRole(string role) =>
+        string.Equals(role, UserRoles.Administrator, StringComparison.OrdinalIgnoreCase)
+            ? UserRoles.Administrator
+            : UserRoles.User;
 
-        var command = connection.CreateCommand();
-        command.CommandText = "SELECT password_hash FROM admins WHERE username = $username;";
-        command.Parameters.AddWithValue("$username", username);
-        return await command.ExecuteScalarAsync() as string;
-    }
+    private static UserRecord ToRecord(UserEntity user) =>
+        new(user.Username, user.PasswordHash, user.Role, user.UpdatedAt);
 }

@@ -144,7 +144,10 @@ static esp_err_t process_relay_frame(int relay_fd)
 
     uint8_t header[FRAME_HEADER_LEN];
     esp_err_t err = relay_read_exact(relay_fd, header, sizeof(header), 5000);
-    ESP_RETURN_ON_ERROR(err, TAG, "read relay frame header failed");
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "read relay frame header failed err=0x%x", err);
+        return err;
+    }
 
     uint8_t type = header[0];
     uint32_t connection_id = relay_read_u32_be(header + 1);
@@ -155,7 +158,12 @@ static esp_err_t process_relay_frame(int relay_fd)
     }
 
     if (length > 0) {
-        ESP_RETURN_ON_ERROR(relay_read_exact(relay_fd, s_rx_buffer, length, 5000), TAG, "read relay payload failed");
+        err = relay_read_exact(relay_fd, s_rx_buffer, length, 5000);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "read relay payload failed type=%u conn=%" PRIu32 " len=%" PRIu32 " err=0x%x",
+                     type, connection_id, length, err);
+            return err;
+        }
     }
 
     switch (type) {

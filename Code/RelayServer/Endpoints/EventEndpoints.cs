@@ -1,4 +1,5 @@
 using RelayServer.Data;
+using RelayServer.Models;
 using RelayServer.Relay;
 
 namespace RelayServer.Endpoints;
@@ -14,7 +15,7 @@ public static class EventEndpoints
                 ? persisted
                 : hub.GetEvents().OrderByDescending(x => x.Timestamp).Take(200);
         })
-            .RequireAuthorization();
+            .RequireAuthorization(policy => policy.RequireRole(UserRoles.Administrator));
 
         return app;
     }

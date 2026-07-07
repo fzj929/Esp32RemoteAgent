@@ -13,6 +13,7 @@ $ErrorActionPreference = "Stop"
 
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectFile = Join-Path $ProjectDir "RelayServer.csproj"
+$ClientAppDir = Join-Path $ProjectDir "ClientApp"
 $PublishDir = Join-Path $ProjectDir "publish"
 $CertDir = Join-Path $ProjectDir "certs"
 $CertPath = Join-Path $CertDir "relay-server.pfx"
@@ -126,6 +127,11 @@ function Write-ProductionSettings {
     "HeartbeatTimeoutSeconds": 45,
     "DatabasePath": "relay.db"
   },
+  "Database": {
+    "Provider": "Sqlite",
+    "ConnectionString": "Data Source=relay.db",
+    "ServerVersion": "8.0.36"
+  },
   "Kestrel": {
     "Endpoints": {
       "Http": {
@@ -206,13 +212,43 @@ function Start-RelayServer {
     Write-Host "[tcp] Board control port: $ControlPort"
 }
 
+function Build-Frontend {
+    $packageJson = Join-Path $ClientAppDir "package.json"
+    if (-not (Test-Path $packageJson)) {
+        Write-Host "[frontend] ClientApp not found, using existing wwwroot files."
+        return
+    }
+
+    Write-Host "[frontend] Building Vue3 ClientApp..."
+    Push-Location $ClientAppDir
+    try {
+        if (-not (Test-Path (Join-Path $ClientAppDir "node_modules"))) {
+            if (Test-Path (Join-Path $ClientAppDir "package-lock.json")) {
+                & npm ci
+            } else {
+                & npm install
+            }
+            if ($LASTEXITCODE -ne 0) {
+                throw "npm install failed."
+            }
+        }
+
+        & npm run build
+        if ($LASTEXITCODE -ne 0) {
+            throw "npm run build failed."
+        }
+    } finally {
+        Pop-Location
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $PublishDir | Out-Null
 New-Item -ItemType Directory -Force -Path $CertDir | Out-Null
 
 $password = Get-CertificatePassword
 New-HttpsCertificate -Password $password
 
-Write-Host "[frontend] Vue3 static files are in wwwroot and will be included in dotnet publish."
+Build-Frontend
 Write-Host "[publish] Publishing $ProjectFile ..."
 & dotnet publish $ProjectFile -c $Configuration -o $PublishDir --self-contained false
 if ($LASTEXITCODE -ne 0) {

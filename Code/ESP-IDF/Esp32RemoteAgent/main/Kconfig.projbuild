@@ -42,6 +42,33 @@ config REMOTE_AGENT_TERMINAL_RDP_PORT
     range 1 65535
     default 3389
 
+config REMOTE_AGENT_MAX_TUNNELS
+    int "Maximum concurrent TCP tunnels"
+    range 4 32
+    default 16
+    help
+        HTTP/HTTPS pages usually open several TCP connections at the same time
+        for JavaScript, CSS, images, and API calls. Keep this high enough for
+        web forwarding, but avoid excessive values because every tunnel consumes
+        ESP32 socket buffers and heap.
+
+config REMOTE_AGENT_TERMINAL_CONNECT_TIMEOUT_MS
+    int "Terminal TCP connect timeout in milliseconds"
+    range 300 5000
+    default 2500
+    help
+        Timeout for each terminal-side TCP connection. HTTP forwarding creates
+        many short connections, so a long blocking connect can make other
+        tunnels feel slow. Keep this near 1500-2500 ms on a healthy USB link.
+
+config REMOTE_AGENT_PENDING_TX_BUFFER
+    int "Pending data buffer per connecting tunnel"
+    range 1024 16384
+    default 8192
+    help
+        Bytes of server-to-terminal data buffered while the terminal TCP
+        connection is still being established.
+
 config REMOTE_AGENT_STATUS_LED_ENABLED
     bool "Enable onboard RGB status LED"
     default y

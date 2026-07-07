@@ -17,8 +17,8 @@ public sealed class BoardSession
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly ConcurrentDictionary<uint, PublicConnection> _connections = new();
     private readonly ConcurrentDictionary<uint, TaskCompletionSource<string?>> _probeWaiters = new();
+    private readonly List<TcpListener> _publicListeners = [];
     private readonly CancellationTokenSource _stopCts = new();
-    private TcpListener? _publicListener;
     private uint _nextConnectionId;
     private int _stopped;
     private long _bytesFromPublic;
@@ -38,6 +38,7 @@ public sealed class BoardSession
 
     public string BoardId => _board.BoardId;
     public int AssignedPort => _board.AssignedPort;
+    public IReadOnlyList<BoardServiceRecord> Services => _board.Services;
     public DateTimeOffset ConnectedAt { get; }
     public DateTimeOffset LastHeartbeat { get; private set; }
     public string RemoteEndPoint { get; }
@@ -55,13 +56,9 @@ public sealed class BoardSession
 
         try
         {
-            _publicListener = new TcpListener(IPAddress.Any, _board.AssignedPort);
-            _publicListener.Start();
-            _hub.AddEvent("info", $"Port {_board.AssignedPort} opened for board {_board.BoardId}.");
-
-            var acceptTask = AcceptPublicClientsAsync(token);
+            var acceptTasks = StartPublicListeners(token);
             var readTask = ReadBoardFramesAsync(token);
-            await Task.WhenAny(acceptTask, readTask);
+            await Task.WhenAny(acceptTasks.Append(readTask));
         }
         finally
         {
@@ -81,10 +78,14 @@ public sealed class BoardSession
             await _stopCts.CancelAsync();
         }
 
-        try { _publicListener?.Stop(); } catch { }
+        foreach (var listener in _publicListeners)
+        {
+            try { listener.Stop(); } catch { }
+        }
+
         foreach (var pair in _connections)
         {
-            await ClosePublicConnectionAsync(pair.Key);
+            await ClosePublicConnectionAsync(pair.Key, "session stopped");
         }
 
         foreach (var pair in _probeWaiters)
@@ -99,7 +100,31 @@ public sealed class BoardSession
         _hub.Unregister(this, reason);
     }
 
-    public async Task<(bool Success, string? Error)> ProbeTargetAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    public bool MatchesServices(IReadOnlyList<BoardServiceRecord> services)
+    {
+        var current = _board.Services.OrderBy(x => x.PublicPort).ToList();
+        var next = services.OrderBy(x => x.PublicPort).ToList();
+        if (current.Count != next.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < current.Count; i++)
+        {
+            if (current[i].PublicPort != next[i].PublicPort ||
+                current[i].TargetPort != next[i].TargetPort ||
+                current[i].Enabled != next[i].Enabled ||
+                !string.Equals(current[i].TargetHost, next[i].TargetHost, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(current[i].Name, next[i].Name, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public async Task<(bool Success, string? Error)> ProbeTargetAsync(BoardServiceRecord service, TimeSpan timeout, CancellationToken cancellationToken)
     {
         if (_stopCts.IsCancellationRequested)
         {
@@ -117,8 +142,8 @@ public sealed class BoardSession
         {
             await RelayFrame.WriteJsonAsync(_boardStream, RelayFrameType.Open, id, new
             {
-                host = _board.TargetHost,
-                port = _board.TargetPort
+                host = service.TargetHost,
+                port = service.TargetPort
             }, cancellationToken, _writeLock);
 
             using var timeoutCts = new CancellationTokenSource(timeout);
@@ -143,11 +168,26 @@ public sealed class BoardSession
         }
     }
 
-    private async Task AcceptPublicClientsAsync(CancellationToken token)
+    private IReadOnlyList<Task> StartPublicListeners(CancellationToken token)
     {
-        while (!token.IsCancellationRequested && _publicListener is not null)
+        var tasks = new List<Task>();
+        foreach (var service in _board.Services.Where(x => x.Enabled))
         {
-            var client = await _publicListener.AcceptTcpClientAsync(token);
+            var listener = new TcpListener(IPAddress.Any, service.PublicPort);
+            listener.Start(128);
+            _publicListeners.Add(listener);
+            _hub.AddEvent("info", $"Port {service.PublicPort} opened for board {_board.BoardId} service {service.Name} -> {service.TargetHost}:{service.TargetPort}.");
+            tasks.Add(Task.Run(() => AcceptPublicClientsAsync(listener, service, token), token));
+        }
+
+        return tasks;
+    }
+
+    private async Task AcceptPublicClientsAsync(TcpListener listener, BoardServiceRecord service, CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            var client = await listener.AcceptTcpClientAsync(token);
             client.NoDelay = true;
             var id = Interlocked.Increment(ref _nextConnectionId);
             var publicConnection = new PublicConnection(id, client);
@@ -157,11 +197,11 @@ public sealed class BoardSession
                 continue;
             }
 
-            _hub.AddEvent("info", $"RDP client connected to board {_board.BoardId}, connection {id}.");
+            _hub.AddEvent("info", $"TCP client connected to board {_board.BoardId} service {service.Name}, connection {id}.");
             await RelayFrame.WriteJsonAsync(_boardStream, RelayFrameType.Open, id, new
             {
-                host = _board.TargetHost,
-                port = _board.TargetPort
+                host = service.TargetHost,
+                port = service.TargetPort
             }, token, _writeLock);
 
             _ = Task.Run(() => PumpPublicToBoardAsync(publicConnection, token), token);
@@ -179,6 +219,7 @@ public sealed class BoardSession
                 var read = await stream.ReadAsync(buffer, token);
                 if (read <= 0)
                 {
+                    connection.CloseReason = "public client closed";
                     break;
                 }
 
@@ -186,13 +227,18 @@ public sealed class BoardSession
                 await RelayFrame.WriteAsync(_boardStream, RelayFrameType.Data, connection.Id, buffer.AsMemory(0, read), token, _writeLock);
             }
         }
-        catch
+        catch (OperationCanceledException)
         {
+            connection.CloseReason = "session stopping";
+        }
+        catch (Exception ex)
+        {
+            connection.CloseReason = $"public read failed: {ex.GetType().Name}";
         }
         finally
         {
             await RelayFrame.WriteAsync(_boardStream, RelayFrameType.Close, connection.Id, ReadOnlyMemory<byte>.Empty, CancellationToken.None, _writeLock);
-            await ClosePublicConnectionAsync(connection.Id);
+            await ClosePublicConnectionAsync(connection.Id, connection.CloseReason ?? "public pump ended");
         }
     }
 
@@ -217,7 +263,7 @@ public sealed class BoardSession
                     await WriteToPublicClientAsync(frame.ConnectionId, frame.Payload, token);
                     break;
                 case RelayFrameType.Close:
-                    await ClosePublicConnectionAsync(frame.ConnectionId);
+                    await ClosePublicConnectionAsync(frame.ConnectionId, "board closed tunnel");
                     break;
                 case RelayFrameType.Error:
                     var message = frame.Payload.IsEmpty
@@ -231,7 +277,7 @@ public sealed class BoardSession
 
                     LastError = message;
                     _hub.AddEvent("error", $"Board {_board.BoardId} reported connection {frame.ConnectionId} error: {message}.");
-                    await ClosePublicConnectionAsync(frame.ConnectionId);
+                    await ClosePublicConnectionAsync(frame.ConnectionId, $"board error: {message}");
                     break;
             }
         }
@@ -250,16 +296,16 @@ public sealed class BoardSession
         }
         catch
         {
-            await ClosePublicConnectionAsync(connectionId);
+            await ClosePublicConnectionAsync(connectionId, "public write failed");
         }
     }
 
-    private Task ClosePublicConnectionAsync(uint connectionId)
+    private Task ClosePublicConnectionAsync(uint connectionId, string reason)
     {
         if (_connections.TryRemove(connectionId, out var connection))
         {
             try { connection.Client.Close(); } catch { }
-            _hub.AddEvent("info", $"RDP client disconnected from board {_board.BoardId}, connection {connectionId}.");
+            _hub.AddEvent("info", $"TCP client disconnected from board {_board.BoardId}, connection {connectionId}: {reason}.");
         }
 
         return Task.CompletedTask;

@@ -22,26 +22,65 @@ public static class BoardValidator
             return "AuthKey must be changed from the default placeholder.";
         }
 
-        if (request.AssignedPort < options.PublicPortMin || request.AssignedPort > options.PublicPortMax)
+        var services = NormalizeServices(request);
+        if (services.Count == 0)
         {
-            return $"AssignedPort must be between {options.PublicPortMin} and {options.PublicPortMax}.";
+            return "At least one TCP service is required.";
         }
 
-        if (options.ReservedPorts.Contains(request.AssignedPort))
+        foreach (var service in services)
         {
-            return $"Port {request.AssignedPort} is reserved.";
+            if (string.IsNullOrWhiteSpace(service.Name))
+            {
+                return "Service name is required.";
+            }
+
+            if (service.PublicPort < options.PublicPortMin || service.PublicPort > options.PublicPortMax)
+            {
+                return $"PublicPort must be between {options.PublicPortMin} and {options.PublicPortMax}.";
+            }
+
+            if (options.ReservedPorts.Contains(service.PublicPort))
+            {
+                return $"Port {service.PublicPort} is reserved.";
+            }
+
+            if (string.IsNullOrWhiteSpace(service.TargetHost))
+            {
+                return "TargetHost is required.";
+            }
+
+            if (service.TargetPort <= 0 || service.TargetPort > 65535)
+            {
+                return "TargetPort is invalid.";
+            }
         }
 
-        if (string.IsNullOrWhiteSpace(request.TargetHost))
+        if (services.Select(x => x.PublicPort).Distinct().Count() != services.Count)
         {
-            return "TargetHost is required.";
-        }
-
-        if (request.TargetPort <= 0 || request.TargetPort > 65535)
-        {
-            return "TargetPort is invalid.";
+            return "Public service ports must be unique.";
         }
 
         return null;
+    }
+
+    public static IReadOnlyList<BoardServiceEditRequest> NormalizeServices(BoardEditRequest request)
+    {
+        if (request.Services is { Count: > 0 })
+        {
+            return request.Services
+                .Select(x => new BoardServiceEditRequest(
+                    x.Name.Trim(),
+                    x.PublicPort,
+                    x.TargetHost.Trim(),
+                    x.TargetPort,
+                    x.Enabled))
+                .ToList();
+        }
+
+        return
+        [
+            new BoardServiceEditRequest("RDP", request.AssignedPort, request.TargetHost.Trim(), request.TargetPort, true)
+        ];
     }
 }

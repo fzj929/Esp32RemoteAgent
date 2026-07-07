@@ -1,5 +1,6 @@
 #include "relay_protocol.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,6 +38,7 @@ static esp_err_t write_all(int fd, const uint8_t *buffer, size_t length)
     while (offset < length) {
         int sent = send(fd, buffer + offset, length - offset, 0);
         if (sent <= 0) {
+            ESP_LOGW(TAG, "send failed fd=%d sent=%d errno=%d offset=%u len=%u", fd, sent, errno, (unsigned)offset, (unsigned)length);
             return ESP_FAIL;
         }
         offset += sent;
@@ -66,14 +68,17 @@ esp_err_t relay_read_exact(int fd, uint8_t *buffer, size_t length, int timeout_m
 
         int selected = select(fd + 1, &readfds, NULL, NULL, &tv);
         if (selected < 0) {
+            ESP_LOGW(TAG, "select failed fd=%d errno=%d offset=%u len=%u", fd, errno, (unsigned)offset, (unsigned)length);
             return ESP_FAIL;
         }
         if (selected == 0) {
+            ESP_LOGW(TAG, "read timeout fd=%d offset=%u len=%u timeout=%d", fd, (unsigned)offset, (unsigned)length, timeout_ms);
             return ESP_ERR_TIMEOUT;
         }
 
         int received = recv(fd, buffer + offset, length - offset, 0);
         if (received <= 0) {
+            ESP_LOGW(TAG, "recv failed fd=%d received=%d errno=%d offset=%u len=%u", fd, received, errno, (unsigned)offset, (unsigned)length);
             return ESP_FAIL;
         }
         offset += received;
