@@ -12,6 +12,7 @@
 - Role-based access control: administrators can see every board, normal users only see boards assigned to their username.
 - Cookie-based administrator login.
 - Static Vue 3 management UI served from `wwwroot`.
+- Public port customer allocation management.
 - HTTPS support through the publish/start script.
 
 ## Roles
@@ -103,13 +104,21 @@ Change the password immediately after first login.
 
 ## Board Registration
 
-Add each board in the management page before the board connects:
+Configure public ports first in the management page:
+
+- Open `公网端口`.
+- Add one row for each public port.
+- Each public port must have a customer name.
+- A disabled public port cannot be used by a board service.
+- A public port already used by one board service cannot be used again.
+
+Then add each board in the management page before the board connects:
 
 - Board ID
 - Board authentication key
 - One or more TCP services:
   - Service name, such as `RDP`, `HTTP`, or `HTTPS`
-  - Public port, usually `6500-6600`
+  - Public port selected from the configured customer port list, usually `6500-6600`
   - Terminal target, such as `192.168.77.2:3389`, `192.168.77.2:80`, or `192.168.77.2:443`
 
 The control port `6555` is reserved and must not be assigned as a service public port.

@@ -1,19 +1,23 @@
 <script setup>
 import { computed, reactive, ref } from 'vue';
+import { api } from '../api';
 
 const props = defineProps({
   isAdmin: { type: Boolean, required: true },
-  session: { type: Object, required: true }
+  session: { type: Object, required: true },
+  saveHandler: { type: Function, required: true }
 });
-const emit = defineEmits(['save']);
 
 const visible = ref(false);
 const editingExisting = ref(false);
 const users = ref([]);
+const ports = ref([]);
 const error = ref('');
 const form = reactive(emptyBoard());
+const quickPort = reactive({ publicPort: 6500, customerName: '', note: '' });
 
 const assignableUsers = computed(() => users.value.filter(x => x.role !== 'Administrator'));
+const enabledPorts = computed(() => ports.value.filter(x => x.enabled));
 
 function emptyBoard() {
   return {
@@ -26,7 +30,7 @@ function emptyBoard() {
     targetHost: '192.168.77.2',
     targetPort: 3389,
     services: [
-      { name: 'RDP', publicPort: 6500, targetHost: '192.168.77.2', targetPort: 3389, enabled: true }
+      { name: 'RDP', publicPort: 6500, portSearch: '', targetHost: '192.168.77.2', targetPort: 3389, enabled: true }
     ]
   };
 }
@@ -42,12 +46,17 @@ function assign(target, source) {
   Object.assign(target, source);
 }
 
-function open(board = null, userList = []) {
+function enrichService(service) {
+  return { ...service, portSearch: '' };
+}
+
+function open(board = null, userList = [], publicPortList = []) {
   error.value = '';
   users.value = userList || [];
+  ports.value = publicPortList || [];
   editingExisting.value = Boolean(board);
   if (board) {
-    const services = servicesOf(board).map(x => ({ ...x }));
+    const services = servicesOf(board).map(enrichService);
     assign(form, {
       boardId: board.boardId,
       name: board.name,
@@ -73,9 +82,9 @@ function close() {
 
 function addService() {
   const used = new Set(form.services.map(x => Number(x.publicPort)));
-  let port = 6500;
-  while (used.has(port) && port < 6600) port += 1;
-  form.services.push({ name: 'HTTP', publicPort: port, targetHost: '192.168.77.2', targetPort: 80, enabled: true });
+  const available = enabledPorts.value.find(x => !x.usedByBoardId && !used.has(Number(x.publicPort)));
+  const port = available?.publicPort || 6500;
+  form.services.push({ name: 'HTTP', publicPort: port, portSearch: '', targetHost: '192.168.77.2', targetPort: 80, enabled: true });
 }
 
 function removeService(index) {
@@ -104,10 +113,44 @@ async function save() {
     }))
   };
   try {
-    await emit('save', { editingExisting: editingExisting.value, board });
+    await props.saveHandler({ editingExisting: editingExisting.value, board });
     close();
   } catch (ex) {
     error.value = ex.message || '保存失败';
+  }
+}
+
+function portLabel(port) {
+  const status = port.usedByBoardId ? `已占用：${port.usedByBoardId}` : '可用';
+  return `${port.publicPort} / ${port.customerName} / ${status}`;
+}
+
+function selectablePorts(service) {
+  const query = String(service.portSearch || '').trim().toLowerCase();
+  return enabledPorts.value
+    .filter(port => !port.usedByBoardId || Number(port.publicPort) === Number(service.publicPort))
+    .filter(port => {
+      if (!query) return true;
+      return String(port.publicPort).includes(query) ||
+        port.customerName.toLowerCase().includes(query) ||
+        String(port.note || '').toLowerCase().includes(query);
+    });
+}
+
+async function addQuickPort() {
+  error.value = '';
+  try {
+    await api.createPublicPort({
+      publicPort: Number(quickPort.publicPort),
+      customerName: quickPort.customerName,
+      note: quickPort.note,
+      enabled: true
+    });
+    ports.value = await api.publicPorts();
+    quickPort.customerName = '';
+    quickPort.note = '';
+  } catch (ex) {
+    error.value = ex.message || '新增端口映射失败';
   }
 }
 
@@ -140,9 +183,23 @@ defineExpose({ open });
           <h3>TCP 服务</h3>
           <button class="ghost dark" type="button" @click="addService">新增服务</button>
         </div>
+        <div v-if="isAdmin" class="quick-port-map">
+          <input v-model.number="quickPort.publicPort" type="number" min="6500" max="6600" placeholder="公网端口">
+          <input v-model.trim="quickPort.customerName" placeholder="客户名称">
+          <input v-model.trim="quickPort.note" placeholder="备注">
+          <button class="ghost dark" type="button" @click="addQuickPort">增加客户端口映射</button>
+        </div>
         <div v-for="(service, index) in form.services" :key="index" class="service-form-row">
           <label>名称<input v-model.trim="service.name" required></label>
-          <label>公网端口<input v-model.number="service.publicPort" type="number" min="6500" max="6600" required></label>
+          <label class="port-picker">公网端口
+            <input v-model.trim="service.portSearch" placeholder="搜索客户、端口或备注">
+            <select v-model.number="service.publicPort" required>
+              <option disabled value="">请选择公网端口</option>
+              <option v-for="port in selectablePorts(service)" :key="port.publicPort" :value="port.publicPort">
+                {{ portLabel(port) }}
+              </option>
+            </select>
+          </label>
           <label>终端 IP<input v-model.trim="service.targetHost" required></label>
           <label>终端端口<input v-model.number="service.targetPort" type="number" min="1" max="65535" required></label>
           <label>状态<select v-model="service.enabled"><option :value="true">启用</option><option :value="false">停用</option></select></label>

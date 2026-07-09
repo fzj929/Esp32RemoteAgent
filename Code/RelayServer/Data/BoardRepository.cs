@@ -53,16 +53,23 @@ public sealed class BoardRepository(IDbContextFactory<RelayDbContext> dbFactory)
         existing.TargetHost = board.TargetHost;
         existing.TargetPort = board.TargetPort;
         existing.UpdatedAt = board.UpdatedAt;
-        db.BoardServices.RemoveRange(existing.Services);
-        existing.Services = board.Services.Select(service => new BoardServiceEntity
+
+        var nextPorts = board.Services.Select(x => x.PublicPort).ToHashSet();
+        db.BoardServices.RemoveRange(existing.Services.Where(service => !nextPorts.Contains(service.PublicPort)));
+        foreach (var service in board.Services)
         {
-            BoardId = board.BoardId,
-            Name = service.Name,
-            PublicPort = service.PublicPort,
-            TargetHost = service.TargetHost,
-            TargetPort = service.TargetPort,
-            Enabled = service.Enabled
-        }).ToList();
+            var entity = existing.Services.FirstOrDefault(x => x.PublicPort == service.PublicPort);
+            if (entity is null)
+            {
+                entity = new BoardServiceEntity { BoardId = board.BoardId, PublicPort = service.PublicPort };
+                existing.Services.Add(entity);
+            }
+
+            entity.Name = service.Name;
+            entity.TargetHost = service.TargetHost;
+            entity.TargetPort = service.TargetPort;
+            entity.Enabled = service.Enabled;
+        }
 
         await db.SaveChangesAsync();
     }

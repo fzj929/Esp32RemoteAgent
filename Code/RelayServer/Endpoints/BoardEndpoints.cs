@@ -36,7 +36,7 @@ public static class BoardEndpoints
                 dto);
         });
 
-        group.MapPost("/", async (BoardEditRequest request, BoardRepository repo, RelayOptions options, ClaimsPrincipal user) =>
+        group.MapPost("/", async (BoardEditRequest request, BoardRepository repo, PublicPortRepository ports, RelayOptions options, ClaimsPrincipal user) =>
         {
             var access = GetAccess(user);
             var normalizedRequest = NormalizeOwnership(request, access);
@@ -46,12 +46,19 @@ public static class BoardEndpoints
                 return Results.BadRequest(new { error = validation });
             }
 
+            var services = BoardValidator.NormalizeServices(normalizedRequest);
+            var portValidation = await ports.ValidateServicePortsAsync(normalizedRequest.BoardId.Trim(), services);
+            if (portValidation is not null)
+            {
+                return Results.BadRequest(new { error = portValidation });
+            }
+
             await repo.UpsertBoardAsync(ToBoardRecord(normalizedRequest, normalizedRequest.AuthKey.Trim()));
 
             return Results.Ok();
         });
 
-        group.MapPut("/{boardId}", async (string boardId, BoardEditRequest request, BoardRepository repo, RelayOptions options, RelayHub hub, ClaimsPrincipal user) =>
+        group.MapPut("/{boardId}", async (string boardId, BoardEditRequest request, BoardRepository repo, PublicPortRepository ports, RelayOptions options, RelayHub hub, ClaimsPrincipal user) =>
         {
             var access = GetAccess(user);
             if (!string.Equals(boardId, request.BoardId, StringComparison.Ordinal))
@@ -75,6 +82,13 @@ public static class BoardEndpoints
             if (validation is not null)
             {
                 return Results.BadRequest(new { error = validation });
+            }
+
+            var services = BoardValidator.NormalizeServices(normalizedRequest);
+            var portValidation = await ports.ValidateServicePortsAsync(boardId, services);
+            if (portValidation is not null)
+            {
+                return Results.BadRequest(new { error = portValidation });
             }
 
             var nextBoard = ToBoardRecord(normalizedRequest, effectiveAuthKey);

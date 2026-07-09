@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { api } from '../api';
 import BoardDialog from './BoardDialog.vue';
 import PasswordDialog from './PasswordDialog.vue';
+import PortAdmin from './PortAdmin.vue';
 import UserAdmin from './UserAdmin.vue';
 
 const props = defineProps({ session: { type: Object, required: true } });
@@ -13,6 +14,7 @@ const boards = ref([]);
 const diagnostics = ref(null);
 const events = ref([]);
 const users = ref([]);
+const publicPorts = ref([]);
 const lastProbe = ref({ boardId: '', target: '', detail: '暂无', tone: 'muted' });
 const boardDialog = ref(null);
 const passwordDialog = ref(null);
@@ -41,7 +43,7 @@ function ownerText(board) {
 }
 
 async function loadAll() {
-  const jobs = [api.boards(), api.diagnostics()];
+  const jobs = [api.boards(), api.diagnostics(), api.publicPorts().catch(() => [])];
   if (isAdmin.value) {
     jobs.push(api.events().catch(() => []), api.users().catch(() => []));
   }
@@ -49,8 +51,9 @@ async function loadAll() {
   const result = await Promise.all(jobs);
   boards.value = result[0] || [];
   diagnostics.value = result[1] || null;
-  events.value = result[2] || [];
-  users.value = result[3] || [];
+  publicPorts.value = result[2] || [];
+  events.value = result[3] || [];
+  users.value = result[4] || [];
 }
 
 function startPolling() {
@@ -70,7 +73,7 @@ function setView(view) {
 }
 
 function editBoard(board = null) {
-  boardDialog.value.open(board, users.value);
+  boardDialog.value.open(board, users.value, publicPorts.value);
 }
 
 async function saveBoard(payload) {
@@ -170,6 +173,7 @@ onUnmounted(stopPolling);
 
       <nav class="nav-tabs" aria-label="后台菜单">
         <button :class="{ active: activeView === 'boards' }" @click="setView('boards')">板子管理</button>
+        <button v-if="isAdmin" :class="{ active: activeView === 'ports' }" @click="setView('ports')">公网端口</button>
         <button v-if="isAdmin" :class="{ active: activeView === 'users' }" @click="setView('users')">用户权限</button>
       </nav>
 
@@ -254,12 +258,16 @@ onUnmounted(stopPolling);
         </section>
       </template>
 
+      <section v-else-if="activeView === 'ports' && isAdmin" class="user-admin-page">
+        <PortAdmin />
+      </section>
+
       <section v-else-if="activeView === 'users' && isAdmin" class="user-admin-page">
         <UserAdmin />
       </section>
     </main>
 
-    <BoardDialog ref="boardDialog" :is-admin="isAdmin" :session="session" @save="saveBoard" />
+    <BoardDialog ref="boardDialog" :is-admin="isAdmin" :session="session" :save-handler="saveBoard" />
     <PasswordDialog ref="passwordDialog" @changed="emit('session-change')" />
   </div>
 </template>

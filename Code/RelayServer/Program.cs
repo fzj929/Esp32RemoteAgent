@@ -30,6 +30,7 @@ builder.Services.AddDbContextFactory<RelayDbContext>((sp, options) =>
 });
 
 builder.Services.AddSingleton<BoardRepository>();
+builder.Services.AddSingleton<PublicPortRepository>();
 builder.Services.AddSingleton<AuthRepository>();
 builder.Services.AddSingleton<EventRepository>();
 builder.Services.AddSingleton<RelayHub>();
@@ -60,6 +61,7 @@ builder.Services.AddDataProtection()
 var app = builder.Build();
 
 await app.Services.GetRequiredService<BoardRepository>().InitializeAsync();
+await app.Services.GetRequiredService<PublicPortRepository>().InitializeAsync();
 await app.Services.GetRequiredService<AuthRepository>().InitializeAsync();
 await app.Services.GetRequiredService<EventRepository>().InitializeAsync();
 
@@ -70,6 +72,7 @@ app.UseAuthorization();
 
 app.MapAuthEndpoints();
 app.MapBoardEndpoints();
+app.MapPublicPortEndpoints();
 app.MapEventEndpoints();
 
 app.Run();

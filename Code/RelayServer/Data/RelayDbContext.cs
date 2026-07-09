@@ -8,6 +8,7 @@ public sealed class RelayDbContext(DbContextOptions<RelayDbContext> options) : D
     public DbSet<UserEntity> Users => Set<UserEntity>();
     public DbSet<BoardEntity> Boards => Set<BoardEntity>();
     public DbSet<BoardServiceEntity> BoardServices => Set<BoardServiceEntity>();
+    public DbSet<PublicPortAllocationEntity> PublicPortAllocations => Set<PublicPortAllocationEntity>();
     public DbSet<RelayEventEntity> RelayEvents => Set<RelayEventEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -51,6 +52,17 @@ public sealed class RelayDbContext(DbContextOptions<RelayDbContext> options) : D
             entity.Property(x => x.TargetPort).HasColumnName("target_port").IsRequired();
             entity.Property(x => x.Enabled).HasColumnName("enabled").IsRequired();
             entity.HasOne(x => x.Board).WithMany(x => x.Services).HasForeignKey(x => x.BoardId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PublicPortAllocationEntity>(entity =>
+        {
+            entity.ToTable("public_port_allocations");
+            entity.HasKey(x => x.PublicPort);
+            entity.Property(x => x.PublicPort).HasColumnName("public_port").IsRequired();
+            entity.Property(x => x.CustomerName).HasColumnName("customer_name").HasMaxLength(128).IsRequired();
+            entity.Property(x => x.Note).HasColumnName("note").HasMaxLength(255);
+            entity.Property(x => x.Enabled).HasColumnName("enabled").IsRequired();
+            entity.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
         });
 
         modelBuilder.Entity<RelayEventEntity>(entity =>
