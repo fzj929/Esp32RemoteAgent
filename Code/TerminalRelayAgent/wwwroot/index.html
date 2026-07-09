@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Terminal Relay Agent</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="head">
+      <div>
+        <p>TERMINAL TCP RELAY</p>
+        <h1>终端中转代理</h1>
+      </div>
+      <button id="refresh">刷新</button>
+    </section>
+
+    <section class="grid">
+      <form id="configForm" class="panel">
+        <div class="panel-head">
+          <h2>连接配置</h2>
+          <span>保存后代理会自动使用新配置重连中转服务器</span>
+        </div>
+        <label>启用代理
+          <select id="enabled">
+            <option value="true">启用</option>
+            <option value="false">停用</option>
+          </select>
+        </label>
+        <label>固定 ID / BoardId
+          <input id="boardId" required>
+        </label>
+        <label>认证密钥 / BoardKey
+          <input id="boardKey" type="password" required>
+        </label>
+        <div class="split">
+          <label>中转服务器地址
+            <input id="relayHost" required>
+          </label>
+          <label>控制端口
+            <input id="relayPort" type="number" min="1" max="65535" required>
+          </label>
+        </div>
+        <div class="split">
+          <label>默认目标地址
+            <input id="defaultTargetHost" required>
+          </label>
+          <label>默认目标端口
+            <input id="defaultTargetPort" type="number" min="1" max="65535" required>
+          </label>
+        </div>
+        <p class="hint">实际公网端口和服务规则仍在中转服务器后台配置。服务端下发目标地址时，以服务端配置为准。</p>
+        <p id="message" class="message"></p>
+        <button class="primary" type="submit">保存配置</button>
+      </form>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>运行状态</h2>
+          <span id="statusTime">-</span>
+        </div>
+        <dl class="status">
+          <dt>状态</dt><dd id="online">-</dd>
+          <dt>中转服务器</dt><dd id="relay">-</dd>
+          <dt>活动连接</dt><dd id="activeTunnels">0</dd>
+          <dt>上行到目标</dt><dd id="bytesFromServer">0 B</dd>
+          <dt>目标返回</dt><dd id="bytesFromTarget">0 B</dd>
+          <dt>最近心跳</dt><dd id="lastHeartbeat">-</dd>
+          <dt>错误</dt><dd id="lastError">-</dd>
+        </dl>
+      </section>
+    </section>
+  </main>
+
+  <script src="/jquery.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
